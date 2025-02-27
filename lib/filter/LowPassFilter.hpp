@@ -6,6 +6,7 @@ class LowPassFilter{
 public:
     LowPassFilter();
     LowPassFilter(float alpha);
+    void on_init(float value);
     float filter(float value);
     void setAlpha(float alpha);
     float getAlpha();

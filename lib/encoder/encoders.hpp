@@ -25,13 +25,30 @@ class EncoderI2C {
     void write();
     float getAngle();
     float getAngleDegrees();
+    float getVelocity();
+    float getRawAngle();
+    float getPrevAngle();
+    float getAccumulatedAngle();
     int getSensorDirection(){return sensor_direction_;}
+    void setSensorDirection(int direction){sensor_direction_ = direction;}
+    void setOffset(float offset){
+        offset_ = offset;
+        accumulated_angle_ = 0;
+        prev_angle_ = 0;}
 
     private:
     int sda_;
     int scl_;
     int sensor_direction_ = 1;
     float angle_;
+    float velocity_;
+    float prev_angle_;
+    float offset_;
+    float accumulated_angle_;
+    float prev_angle_time_;
+    float prev_angle_velocity_;
+    float prev_angle_velocity_time_;
+    float min_elapsed_time_ = 0.0001;
     uint32_t addr_;
     uint32_t freq_;
     esp_err_t read_register_(uint8_t reg, uint8_t *data);

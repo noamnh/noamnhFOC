@@ -37,6 +37,10 @@ void EncoderI2C::init() {
     if (ret != ESP_OK) {
         printf("I2C driver install failed: %s\n", esp_err_to_name(ret));
     }
+
+    read();
+    prev_angle_velocity_time_ = get_micros();
+    prev_angle_velocity_ = angle_;
 }
 
 
@@ -82,6 +86,24 @@ void EncoderI2C::read() {
 
     // Convert raw angle to degrees (0-2PI)
     angle_ = (float)raw_angle * _2PI / 4096;
+    float delta_angle = angle_ - prev_angle_;
+    if(delta_angle > _PI){
+        delta_angle -= _2PI;
+    } else if(delta_angle < -_PI){
+        delta_angle += _2PI;
+    }
+    accumulated_angle_ += delta_angle;
+
+    prev_angle_ = angle_;
+    float delta_time = (get_micros() - prev_angle_time_)*1e-6f;
+    if(delta_time < 0.0f){
+        prev_angle_velocity_time_ = prev_angle_time_;
+        return;
+    }
+    velocity_ = delta_angle / delta_time;
+    prev_angle_time_ = get_micros();
+
+
     
 
 }
@@ -91,11 +113,25 @@ void EncoderI2C::write() {
 }
 
 float EncoderI2C::getAngle() {
-    return angle_;
+    return angle_ - offset_;
 }
 
 float EncoderI2C::getAngleDegrees() {
     return angle_ * 180 / _PI;
 }
 
+float EncoderI2C::getRawAngle() {
+    return angle_;
+}
 
+float EncoderI2C::getPrevAngle() {
+    return prev_angle_ - offset_;
+}
+
+float EncoderI2C::getAccumulatedAngle() {
+    return accumulated_angle_ - offset_;
+}
+
+float EncoderI2C::getVelocity() {
+    return velocity_;
+}

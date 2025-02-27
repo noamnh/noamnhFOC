@@ -13,11 +13,24 @@ void FOCController::on_configure() {
 
 
 
-void FOCController::on_init(Inverter& inverter, EncoderI2C& encoder, Motor& motor) {
+void FOCController::on_init(Inverter& inverter, EncoderI2C& encoder, Motor& motor, CurrentSense& current_sense) {
     // Initialize the FOC controller
     inverter_ = inverter;
     encoder_ = encoder;
     motor_ = motor;
+    current_sense_ = current_sense;
+
+    inverter_.on_init();
+    encoder_.init();
+    current_sense_.on_init();
+
+    lpf_id_.setAlpha(0.5);
+    lpf_iq_.setAlpha(0.5);
+    lpf_vel_.setAlpha(0.2);
+    lpf_shaft_angle_.setAlpha(0.5);
+    lpf_vel_.on_init(encoder_.getVelocity());
+    lpf_shaft_angle_.on_init(encoder_.getAngle());
+
 }
 
 void FOCController::on_activate() {
@@ -31,18 +44,7 @@ void FOCController::on_deactivate() {
 }
 
 void FOCController::run() {
-    on_activate();
-    // lets create a while loop that runs at 
-    // Run the FOC controller at 10kHz
-TickType_t last_wake_time = xTaskGetTickCount();
-
-    while (1) {
-        encoder_.read();
-        float angle = encoder_.getAngle();
-        float electrical_angle = calculate_electrical_angle_(angle);
-        float shaft_angle = calculate_shaft_angle_(angle);
-        vTaskDelayUntil(&last_wake_time, LOOP_PERIOD_TICKS);
-    }    
+    // test_after_align();
 }
 
 void FOCController::stop() {
@@ -57,17 +59,28 @@ bool FOCController::align() {
 
     // Check sensor is connected and sending data // TODO
     inverter_.on_activate();
+    current_sense_.calibrate();
     // find sensor direction
     sensor_direction_ = findSensorDirection();
     if(sensor_direction_ == SensorDirection::NOT_DEFINED){
         return false;
     }
-
+    encoder_.setSensorDirection(getSensorDirection());
+    findZeroElectricalAngle();
     inverter_.on_deactivate();
     // find motor paramters
     // if(!findMotorParameters(motor_.get_config())){
     //     return false;
     // }
+    //     auto start = get_millis();
+    // while (get_millis() - start < 30000) {
+    //     encoder_.read();
+    //     printf("After offset shaft angle %f\n", encoder_.getAngle());
+    //     printf("Multi turn shaft angle %f\n", (encoder_.getAccumulatedAngle()));
+    //     printf("Sensor offset %f\n", sensor_offset_.load());
+    //     vTaskDelay(100 / portTICK_PERIOD_MS);
+    // }
+    
     // find zero electrical angle
     return true;
 
@@ -76,41 +89,71 @@ bool FOCController::align() {
 SensorDirection FOCController::findSensorDirection() {
     // Find the sensor direction
     // This function is moving the motor in one direction and observing the encoder
+    float degree_speed = 10.0f; // 10°/s
     float dt = 0.01f; // 10ms per step
     int pole_pairs = motor_.get_config().pole_pairs; // 7 pole pairs
-    float speed_rad_s = (10.0f * pole_pairs) * (M_PI / 180.0f); // Convert 10°/s to rad/s
+    float speed_rad_s = (degree_speed) * (M_PI / 180.0f); // Convert 10°/s to rad/s
+    printf("Speed rad/s: %f\n", speed_rad_s);
     float dtheta = speed_rad_s * dt; // Increment per step
-    int steps = static_cast<int>(180.0f / (10.0f * dt)); // Corrected step count
+    int steps = static_cast<int>(180.0f / (degree_speed * dt)); // Corrected step count
     float theta = 0.0f;
 
     // Rotate Forward 360° Mechanical (36 sec)
     encoder_.read();
     float start_angle = encoder_.getAngle();
     printf("Start angle: %f\n", start_angle);
-    for (int i = 0; i < steps ; i++) {
-        set_phase_voltage_(config_.alignment_voltage, 0, theta);
-        theta += dtheta;
+    printf("Current reading while rotating CW\n");
+    for (int i = 0; i <=500; i++ ) {
+        float angle = _3PI_2 + _2PI * i / 500.0f;
+        set_phase_voltage_(config_.alignment_voltage, 0, angle);
         encoder_.read();
-        if (theta > (2.0f * M_PI * pole_pairs)) { // Wrap for full mechanical rotation
-            theta -= (2.0f * M_PI * pole_pairs);
-        }
+        float velocity = lpf_vel_.filter(encoder_.getVelocity());
         vTaskDelay(2 / portTICK_PERIOD_MS);
     }
 
     float mid_angle = encoder_.getAngle();
     printf("Mid angle: %f\n", mid_angle);
     
-
     // Rotate Backward 360° Mechanical (36 sec)
-    for (int i = 0; i < steps ; i++) {
-        set_phase_voltage_(config_.alignment_voltage, 0, theta);
-        theta -= dtheta;
+
+    for (int i = 500; i >=0; i-- ) {
+        float angle = _3PI_2 + _2PI * i / 500.0f;
+        set_phase_voltage_(config_.alignment_voltage, 0, angle);
         encoder_.read();
-                if (theta < 0) {
-            theta += (2.0f * M_PI * pole_pairs);
-        }
+
         vTaskDelay(2 / portTICK_PERIOD_MS);
     }
+
+    // float end_angle = encoder_.getAngle();
+    // printf("End angle: %f\n", end_angle);
+
+
+
+    // for (int i = 0; i < steps ; i++) {
+    //     set_phase_voltage_(config_.alignment_voltage, 0, theta);
+    //     theta += dtheta;
+    //     encoder_.read();
+    //     if (theta > (2.0f * M_PI * pole_pairs)) { // Wrap for full mechanical rotation
+    //         theta -= (2.0f * M_PI * pole_pairs);
+    //     }
+    //     vTaskDelay(2 / portTICK_PERIOD_MS);
+    // }
+
+    // float mid_angle = encoder_.getAngle();
+    // printf("Mid angle: %f\n", mid_angle);
+    // printf("Current reading while rotating CCW\n");
+
+    // // Rotate Backward 360° Mechanical (36 sec)
+    // for (int i = 0; i < steps ; i++) {
+    //     set_phase_voltage_(config_.alignment_voltage, 0, theta);
+    //     theta -= dtheta;
+    //     encoder_.read();
+    //             if (theta < 0) {
+    //         theta += (2.0f * M_PI * pole_pairs);
+    //     }
+    //     // current_sense_.sample();
+    //     vTaskDelay(2 / portTICK_PERIOD_MS);
+    // }
 
     float end_angle = encoder_.getAngle();
     printf("End angle: %f\n", end_angle);
@@ -167,10 +210,18 @@ bool FOCController::findZeroElectricalAngle() {
     // Find the zero electrical angle
     set_phase_voltage_(config_.alignment_voltage, 0, _3PI_2);
     vTaskDelay(1000 / portTICK_PERIOD_MS);
-    electrical_angle_ = calculate_electrical_angle_(encoder_.getAngle());
-    zero_eletrical_angle_ = electrical_angle_;
-    ESP_LOGI("FOCController", "Zero electrical angle: %f", zero_eletrical_angle_);
+    float sum = 0.0;
+    for (int i = 0; i < 100; i++) {
+        encoder_.read();
+        sum += encoder_.getRawAngle();
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+    }
+    printf("Sum of raw angles: %f\n", sum/100);
+    zero_eletrical_angle_ = 0;
+    zero_eletrical_angle_ = calculate_electrical_angle_(sum / 100);
+    
     set_phase_voltage_(0, 0, 0);
+    printf("Zero electrical angle: %f\n", zero_eletrical_angle_);
     return true;
 }
 
@@ -181,15 +232,13 @@ float FOCController::normal_angle_(float angle) {
 
 }
 
-float FOCController::calculate_electrical_angle_(float shaft_angle) {
-    // Electrical is equal to shaft angle times the number of pole pairs
-  return normal_angle_(getSensorDirection()*shaft_angle*motor_.get_config().pole_pairs - zero_eletrical_angle_);
+float FOCController::electrical_angle_(float angle, int pole_pairs){
+    return shaft_angle_*pole_pairs;
 }
 
-float FOCController::calculate_shaft_angle_(float angle) {
-    // Calculate the shaft angle(
-    shaft_angle_ = getSensorDirection()*(angle - sensor_offset_); // TODO add filter
-    return shaft_angle_;
+float FOCController::calculate_electrical_angle_(float shaft_angle) {
+    // Electrical is equal to shaft angle times the number of pole pairs
+  return normal_angle_((float)shaft_angle*motor_.get_config().pole_pairs - zero_eletrical_angle_);
 }
 
 float FOCController::calculate_shaft_velocity_(float shaft_angle) {
@@ -199,11 +248,21 @@ float FOCController::calculate_shaft_velocity_(float shaft_angle) {
 }
 
 void FOCController::set_phase_voltage_(float Uq, float Ud, float theta) {
-
     auto alfa_beta = foc_.inversePark(Ud, Uq, theta);
     auto voltages = foc_.inverseClarke(alfa_beta);
 
     // Apply voltages to inverter
     inverter_.set_uvw(voltages.u, voltages.v, voltages.w);
+
+}
+
+void FOCController::velocity_control_(float desired_velocity) {
+
+}
+
+void FOCController::test_after_align() {
+    // Test after alignment
+    encoder_.read();
+    set_phase_voltage_(0.5, 0, calculate_electrical_angle_(encoder_.getAngle()));
 
 }
