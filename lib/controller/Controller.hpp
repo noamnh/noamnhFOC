@@ -101,6 +101,10 @@ class FOCController {
     
     bool findZeroElectricalAngle();
 
+    float _normalizeAngle(float angle) {
+        float a = fmod(angle, _2PI);
+        return (a >= 0) ? a : (a + _2PI);
+    }
 
 
     private:

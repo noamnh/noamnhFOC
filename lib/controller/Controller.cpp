@@ -44,7 +44,7 @@ void FOCController::on_deactivate() {
 }
 
 void FOCController::run() {
-    // test_after_align();
+    test_after_align();
 }
 
 void FOCController::stop() {
@@ -218,7 +218,9 @@ bool FOCController::findZeroElectricalAngle() {
     }
     printf("Sum of raw angles: %f\n", sum/100);
     zero_eletrical_angle_ = 0;
-    zero_eletrical_angle_ = calculate_electrical_angle_(sum / 100);
+    zero_eletrical_angle_ = sum/100;
+    zero_eletrical_angle_ *= motor_.get_config().pole_pairs;
+    zero_eletrical_angle_ = _normalizeAngle(zero_eletrical_angle_);
     
     set_phase_voltage_(0, 0, 0);
     printf("Zero electrical angle: %f\n", zero_eletrical_angle_);
@@ -263,6 +265,9 @@ void FOCController::velocity_control_(float desired_velocity) {
 void FOCController::test_after_align() {
     // Test after alignment
     encoder_.read();
-    set_phase_voltage_(0.5, 0, calculate_electrical_angle_(encoder_.getAngle()));
-
+    float shaft_angle = encoder_.getAngle();
+    int sensor_direction = -1;
+    int pole_pairs = motor_.get_config().pole_pairs;
+    float electrical_angle = _normalizeAngle((float)(sensor_direction*pole_pairs)*shaft_angle - zero_eletrical_angle_);
+    set_phase_voltage_(-config_.alignment_voltage, 0, electrical_angle);
 }
