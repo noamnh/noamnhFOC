@@ -30,10 +30,10 @@ ClarkeOutput FieldOrientedControl::clarke(CurrentPhases currentPhases) {
     return clarke_output;
 }
 
-ParkOutput FieldOrientedControl::park(VoltagePhases voltagePhases, float theta) {
+ParkOutput FieldOrientedControl::park(ClarkeOutput clarke, float theta) {
     ParkOutput park_output;
-    park_output.I_d = voltagePhases.u * cos(theta) + voltagePhases.v * sin(theta);
-    park_output.I_q = -voltagePhases.u * sin(theta) + voltagePhases.v * cos(theta);
+    park_output.I_d = clarke.I_alpha * cos(theta) + clarke.I_beta * sin(theta);
+    park_output.I_q = -clarke.I_alpha * sin(theta) + clarke.I_beta * cos(theta);
     return park_output;
 }
 

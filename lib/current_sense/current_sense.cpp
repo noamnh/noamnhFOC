@@ -32,33 +32,35 @@ void CurrentSense::on_deactivate() {
     // Deactivate the current sense
 }
 
-void CurrentSense::sample() {
-
+CurrentPhases CurrentSense::sample() {
+    // Read raw ADC values
     float raw_u = getAveragedADC(config_.u_pin);
     float raw_v = getAveragedADC(config_.v_pin);
     float raw_w = getAveragedADC(config_.w_pin);
-    
+
     // Convert raw ADC values to voltage (in volts)
-    float voltage_u = (raw_u * 3.3) / 4095;  // Scale to 3.3V
+    float voltage_u = (raw_u * 3.3) / 4095;  
     float voltage_v = (raw_v * 3.3) / 4095;
     float voltage_w = (raw_w * 3.3) / 4095;
-    
+
     // Subtract offset (1.65V reference)
     voltage_u -= offset_u_;
     voltage_v -= offset_v_;
     voltage_w -= offset_w_;
-    
-    // Convert to current (without gain)
-    float current_u = voltage_u / (config_.gain*config_.shunt_resistance);
-    float current_v = voltage_v / (config_.gain*config_.shunt_resistance);
-    float current_w = voltage_w / (config_.gain*config_.shunt_resistance);
 
+    // Compute current using current gain
+    float current_u = voltage_u /(config_.shunt_resistance * config_.gain);
+    float current_v = voltage_v /(config_.shunt_resistance * config_.gain);
+    float current_w = voltage_w /(config_.shunt_resistance * config_.gain);
     
-    // Compute total current sum (absolute values)
-    float sum = current_u + current_v + current_w;
+    CurrentPhases currentPhases;
+    currentPhases.I_a = current_u;
+    currentPhases.I_b = current_v;
+    currentPhases.I_c = current_w;
+
+    current_ = currentPhases;
     
-    // Estimate the gain
-    // printf("Sum of Currents: %.4f A (Should be close to 0)\n", sum);
+    return currentPhases;
     
 
 }
@@ -69,7 +71,7 @@ void CurrentSense::calibrate() {
     float offset_v = 0;
     float offset_w = 0;
 
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 1000; i++) {
         float raw_u = getAveragedADC(config_.u_pin);
         float raw_v = getAveragedADC(config_.v_pin);
         float raw_w = getAveragedADC(config_.w_pin);
@@ -85,9 +87,9 @@ void CurrentSense::calibrate() {
         vTaskDelay(1 / portTICK_PERIOD_MS);
         
     }
-    offset_u /= 100;
-    offset_v /= 100;
-    offset_w /= 100;
+    offset_u /= 1000;
+    offset_v /= 1000;
+    offset_w /= 1000;
     set_offsets(offset_u/1000, offset_v/1000, offset_w/1000);
     // printf("CurrentSense Calibration - U: %f mV, V: %f mV\n", offset_u_, offset_v_);
     // Calibrate the current sense

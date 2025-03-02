@@ -44,7 +44,8 @@ void FOCController::on_deactivate() {
 }
 
 void FOCController::run() {
-    test_after_align();
+    current_closed_loop();
+    // test_after_align();
 }
 
 void FOCController::stop() {
@@ -62,26 +63,15 @@ bool FOCController::align() {
     current_sense_.calibrate();
     // find sensor direction
     sensor_direction_ = findSensorDirection();
+    // printf("Sensor direction: %d\n", sensor_direction_);
     if(sensor_direction_ == SensorDirection::NOT_DEFINED){
         return false;
     }
-    encoder_.setSensorDirection(getSensorDirection());
+
+    printf("Sensor direction: %d\n", getSensorDirection());
     findZeroElectricalAngle();
     inverter_.on_deactivate();
-    // find motor paramters
-    // if(!findMotorParameters(motor_.get_config())){
-    //     return false;
-    // }
-    //     auto start = get_millis();
-    // while (get_millis() - start < 30000) {
-    //     encoder_.read();
-    //     printf("After offset shaft angle %f\n", encoder_.getAngle());
-    //     printf("Multi turn shaft angle %f\n", (encoder_.getAccumulatedAngle()));
-    //     printf("Sensor offset %f\n", sensor_offset_.load());
-    //     vTaskDelay(100 / portTICK_PERIOD_MS);
-    // }
-    
-    // find zero electrical angle
+
     return true;
 
 }
@@ -107,6 +97,7 @@ SensorDirection FOCController::findSensorDirection() {
         float angle = _3PI_2 + _2PI * i / 500.0f;
         set_phase_voltage_(config_.alignment_voltage, 0, angle);
         encoder_.read();
+        current_sense_.sample();
         float velocity = lpf_vel_.filter(encoder_.getVelocity());
         vTaskDelay(2 / portTICK_PERIOD_MS);
     }
@@ -120,40 +111,10 @@ SensorDirection FOCController::findSensorDirection() {
         float angle = _3PI_2 + _2PI * i / 500.0f;
         set_phase_voltage_(config_.alignment_voltage, 0, angle);
         encoder_.read();
-
+        
         vTaskDelay(2 / portTICK_PERIOD_MS);
     }
 
-    // float end_angle = encoder_.getAngle();
-    // printf("End angle: %f\n", end_angle);
-
-
-
-    // for (int i = 0; i < steps ; i++) {
-    //     set_phase_voltage_(config_.alignment_voltage, 0, theta);
-    //     theta += dtheta;
-    //     encoder_.read();
-    //     if (theta > (2.0f * M_PI * pole_pairs)) { // Wrap for full mechanical rotation
-    //         theta -= (2.0f * M_PI * pole_pairs);
-    //     }
-    //     vTaskDelay(2 / portTICK_PERIOD_MS);
-    // }
-
-    // float mid_angle = encoder_.getAngle();
-    // printf("Mid angle: %f\n", mid_angle);
-    // printf("Current reading while rotating CCW\n");
-
-    // // Rotate Backward 360° Mechanical (36 sec)
-    // for (int i = 0; i < steps ; i++) {
-    //     set_phase_voltage_(config_.alignment_voltage, 0, theta);
-    //     theta -= dtheta;
-    //     encoder_.read();
-    //             if (theta < 0) {
-    //         theta += (2.0f * M_PI * pole_pairs);
-    //     }
-    //     // current_sense_.sample();
-    //     vTaskDelay(2 / portTICK_PERIOD_MS);
-    // }
 
     float end_angle = encoder_.getAngle();
     printf("End angle: %f\n", end_angle);
@@ -266,8 +227,55 @@ void FOCController::test_after_align() {
     // Test after alignment
     encoder_.read();
     float shaft_angle = encoder_.getAngle();
+    int pole_pairs = motor_.get_config().pole_pairs;
+    float electrical_angle = _normalizeAngle((float)(getSensorDirection()*pole_pairs)*shaft_angle - zero_eletrical_angle_);
+    set_phase_voltage_(config_.alignment_voltage, 0, electrical_angle);
+}
+
+void FOCController::test_closed_loop_velocity() {
+    encoder_.read();
+    float shaft_angle = encoder_.getAngle();
     int sensor_direction = -1;
     int pole_pairs = motor_.get_config().pole_pairs;
     float electrical_angle = _normalizeAngle((float)(sensor_direction*pole_pairs)*shaft_angle - zero_eletrical_angle_);
-    set_phase_voltage_(-config_.alignment_voltage, 0, electrical_angle);
+    auto kp = 0.1;
+}
+
+void FOCController::current_closed_loop() {
+    // Current closed loop
+    encoder_.read();
+
+    float shaft_angle = encoder_.getAngle();
+    int sensor_direction = getSensorDirection();
+    int pole_pairs = motor_.get_config().pole_pairs;
+    float electrical_angle = _normalizeAngle((float)(sensor_direction*pole_pairs)*shaft_angle - zero_eletrical_angle_);
+    ParkOutput iq_d = foc_.park(foc_.clarke(current_sense_.sample()),electrical_angle);
+    float desired_iq = 0.3;
+    float desired_id = 0.0;
+    float actual_iq = lpf_iq_.filter(iq_d.I_q);
+    float actual_id = lpf_id_.filter(iq_d.I_d);
+    
+    auto kp = 0.1;
+    auto ki = 0.1;
+
+    float error_iq = desired_iq - actual_iq;
+    float error_id = desired_id - actual_id;
+
+    float Uq = kp * error_iq;
+    float Ud = kp * error_id;
+
+    if (Uq > 1) {
+        Uq = 1;
+    } else if (Uq < -1) {
+        Uq = -1;
+    }
+
+    if (Ud > 1) {
+        Ud = 1;
+    } else if (Ud < -1) {
+        Ud = -1;
+    }
+
+    set_phase_voltage_(Uq, Ud, electrical_angle);
+    
 }

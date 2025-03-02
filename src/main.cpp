@@ -78,8 +78,8 @@ extern "C" void app_main() {
         // Handle error
     }
 
-    // Start the timer with a period of 100 microseconds (10 kHz)
-    ret = esp_timer_start_periodic(foc_timer, 100);
+    // Start the timer with a period of 40 microseconds (25 kHz)
+    ret = esp_timer_start_periodic(foc_timer, 40);
     if (ret != ESP_OK) {
         // Handle error
     }

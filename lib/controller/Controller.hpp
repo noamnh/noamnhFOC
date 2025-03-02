@@ -136,4 +136,6 @@ class FOCController {
     float calculate_shaft_velocity_(float shaft_angle);
     void velocity_control_(float desired_velocity);
     void test_after_align();
+    void test_closed_loop_velocity();
+    void current_closed_loop();
 };

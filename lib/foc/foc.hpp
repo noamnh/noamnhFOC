@@ -40,7 +40,7 @@ public:
     VoltagePhases inverseClarke(InverseParkOutput inverse_park);
     InverseParkOutput inversePark(float U_d, float U_q, float theta);
     ClarkeOutput clarke(CurrentPhases currentPhases);
-    ParkOutput park(VoltagePhases voltagePhases, float theta);
+    ParkOutput park(ClarkeOutput clarke, float theta);
 
 
 private:
