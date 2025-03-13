@@ -10,6 +10,7 @@
 #include "atomic"
 #include "current_sense.hpp"
 #include "LowPassFilter.hpp"
+#include "pid.hpp"
 
 #define LOOP_FREQUENCY_HZ 10000 // 10 kHz
 #define LOOP_PERIOD_TICKS (pdMS_TO_TICKS(1000) / LOOP_FREQUENCY_HZ)
@@ -101,10 +102,14 @@ class FOCController {
     
     bool findZeroElectricalAngle();
 
-    float _normalizeAngle(float angle) {
-        float a = fmod(angle, _2PI);
-        return (a >= 0) ? a : (a + _2PI);
+    float filter_angle(float new_angle, float prev_filtered);
+
+    inline float _normalizeAngle(float angle) {
+        angle = fmod(angle, _2PI);  // Ensure within [-2π, 2π]
+        if (angle < 0) angle += _2PI;  // Wrap negative angles
+        return angle;
     }
+    
 
 
     private:
@@ -118,6 +123,9 @@ class FOCController {
     LowPassFilter lpf_id_;
     LowPassFilter lpf_shaft_angle_;
     
+    PIDController pid_id_{0.05, 0.02, 0.01, 0.3, -0.3}; // Adjust gains
+    PIDController pid_iq_{0.05, 0.02, 0.01, 0.3, -0.3}; // Adjust gains
+
     SensorDirection sensor_direction_ = SensorDirection::NOT_DEFINED;
     FOCState state_ = FOCState::STOPPED;
     FOCControllerConfig config_;

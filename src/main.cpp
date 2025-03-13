@@ -59,7 +59,6 @@ extern "C" void app_main() {
     controller.on_init(inverter, encoder, motor, current_sense);
 
     vTaskDelay(3000 / portTICK_PERIOD_MS);
-    // current_sense.calibrate();
 
 
     controller.align();
@@ -79,7 +78,7 @@ extern "C" void app_main() {
     }
 
     // Start the timer with a period of 40 microseconds (25 kHz)
-    ret = esp_timer_start_periodic(foc_timer, 40);
+    ret = esp_timer_start_periodic(foc_timer, 50);
     if (ret != ESP_OK) {
         // Handle error
     }

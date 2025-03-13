@@ -2,7 +2,6 @@
 #include "esp_adc_cal.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "foc.hpp"
 
 #define ADC_WIDTH ADC_WIDTH_BIT_12   // 12-bit ADC resolution (0-4095)
 #define ADC_ATTEN ADC_ATTEN_DB_11    // Attenuation for 0-3.9V range (safe for 3.3V input)
@@ -25,7 +24,7 @@ class CurrentSense {
     void on_init();
     void on_activate();
     void on_deactivate();
-    CurrentPhases sample();
+    void sample();
     void calibrate();
     void set_offsets(float offset_u, float offset_v, float offset_w) {
         offset_u_ = offset_u;
@@ -38,7 +37,23 @@ class CurrentSense {
     }
 
     double get_offset_v() {
-        return offset_v_;
+        return offset_v_;   
+    }
+
+    double get_offset_w() {
+        return offset_w_;
+    }
+
+    float get_iu() {
+        return iu_;
+    }
+
+    float get_iv() {
+        return iv_;
+    }
+
+    float get_iw() {
+        return iw_;
     }
 
     float getAveragedADC(int pin) {
@@ -56,6 +71,8 @@ class CurrentSense {
     float offset_v_;
     float offset_w_;
     float last_sum_ = 0;
+    float iu_ = 0;
+    float iv_ = 0;
+    float iw_ = 0;
 
-    CurrentPhases current_;
-};
+}; 

@@ -19,6 +19,8 @@ void FOCController::on_init(Inverter& inverter, EncoderI2C& encoder, Motor& moto
     encoder_ = encoder;
     motor_ = motor;
     current_sense_ = current_sense;
+    foc_ = FieldOrientedControl();
+    generateSinCosTable();
 
     inverter_.on_init();
     encoder_.init();
@@ -27,7 +29,7 @@ void FOCController::on_init(Inverter& inverter, EncoderI2C& encoder, Motor& moto
     lpf_id_.setAlpha(0.5);
     lpf_iq_.setAlpha(0.5);
     lpf_vel_.setAlpha(0.2);
-    lpf_shaft_angle_.setAlpha(0.5);
+    lpf_shaft_angle_.setAlpha(0.1);
     lpf_vel_.on_init(encoder_.getVelocity());
     lpf_shaft_angle_.on_init(encoder_.getAngle());
 
@@ -44,8 +46,8 @@ void FOCController::on_deactivate() {
 }
 
 void FOCController::run() {
-    current_closed_loop();
-    // test_after_align();
+    // current_closed_loop();
+    test_after_align();
 }
 
 void FOCController::stop() {
@@ -59,15 +61,20 @@ void FOCController::stop() {
 bool FOCController::align() {
 
     // Check sensor is connected and sending data // TODO
+    printf("Aligning motor\n");
+    printf("Activating inverter\n");
     inverter_.on_activate();
+    printf("Inverter activated\n");
+    printf("Sampling current\n");
     current_sense_.calibrate();
     // find sensor direction
+    printf("Looking for sensor direction\n");
     sensor_direction_ = findSensorDirection();
     // printf("Sensor direction: %d\n", sensor_direction_);
     if(sensor_direction_ == SensorDirection::NOT_DEFINED){
         return false;
     }
-
+    printf("Sensor direction found\n");
     printf("Sensor direction: %d\n", getSensorDirection());
     findZeroElectricalAngle();
     inverter_.on_deactivate();
@@ -211,7 +218,8 @@ float FOCController::calculate_shaft_velocity_(float shaft_angle) {
 }
 
 void FOCController::set_phase_voltage_(float Uq, float Ud, float theta) {
-    auto alfa_beta = foc_.inversePark(Ud, Uq, theta);
+    InverseParkOutput alfa_beta;
+    foc_.inversePark(Ud, Uq, theta, alfa_beta.U_alfa, alfa_beta.U_beta);
     auto voltages = foc_.inverseClarke(alfa_beta);
 
     // Apply voltages to inverter
@@ -223,59 +231,88 @@ void FOCController::velocity_control_(float desired_velocity) {
 
 }
 
+// Add this function to your class
+float FOCController::filter_angle(float new_angle, float prev_filtered) {
+    // Calculate angle difference accounting for wraparound
+    float diff = new_angle - prev_filtered;
+    if (diff > _PI) diff -= _2PI;
+    if (diff < -_PI) diff += _2PI;
+    
+    // Apply filtering to the difference
+    float alpha = 0.1f;  // Lower = more filtering
+    return _normalizeAngle(prev_filtered + alpha * diff);
+}
+
 void FOCController::test_after_align() {
     // Test after alignment
+    static float prev_electrical_angle = 0;
+    static bool first_run = true;
+
     encoder_.read();
     float shaft_angle = encoder_.getAngle();
+
     int pole_pairs = motor_.get_config().pole_pairs;
-    float electrical_angle = _normalizeAngle((float)(getSensorDirection()*pole_pairs)*shaft_angle - zero_eletrical_angle_);
-    set_phase_voltage_(config_.alignment_voltage, 0, electrical_angle);
+    float raw_electrical_angle = _normalizeAngle((float)(-1.0*pole_pairs)*shaft_angle - zero_eletrical_angle_);
+    
+    // Handle first run
+    if (first_run) {
+        prev_electrical_angle = raw_electrical_angle;
+        first_run = false;
+    }
+    
+    // Apply proper angle filtering that handles wraparound
+    float filtered_electrical_angle = filter_angle(raw_electrical_angle, prev_electrical_angle);
+    
+    // Save for next iteration
+    prev_electrical_angle = filtered_electrical_angle;
+    
+    // Apply the filtered angle for motor control
+    set_phase_voltage_(0.15, 0, filtered_electrical_angle + 0.05);
+    
+    // Optional debugging
+    static int counter = 0;
+    if (counter++ % 100 == 0) {
+        printf("Shaft: %.4f, Raw Elec: %.4f, Filtered: %.4f\n", 
+               shaft_angle, raw_electrical_angle, filtered_electrical_angle);
+    }
 }
 
 void FOCController::test_closed_loop_velocity() {
     encoder_.read();
     float shaft_angle = encoder_.getAngle();
+    shaft_angle = lpf_shaft_angle_.filter(shaft_angle);
     int sensor_direction = -1;
     int pole_pairs = motor_.get_config().pole_pairs;
-    float electrical_angle = _normalizeAngle((float)(sensor_direction*pole_pairs)*shaft_angle - zero_eletrical_angle_);
+    float electrical_angle = _normalizeAngle((float)(-1*pole_pairs)*shaft_angle - zero_eletrical_angle_);
     auto kp = 0.1;
 }
 
 void FOCController::current_closed_loop() {
-    // Current closed loop
+    // Read encoder and compute electrical angle
     encoder_.read();
-
     float shaft_angle = encoder_.getAngle();
-    int sensor_direction = getSensorDirection();
     int pole_pairs = motor_.get_config().pole_pairs;
-    float electrical_angle = _normalizeAngle((float)(sensor_direction*pole_pairs)*shaft_angle - zero_eletrical_angle_);
-    ParkOutput iq_d = foc_.park(foc_.clarke(current_sense_.sample()),electrical_angle);
-    float desired_iq = 0.3;
-    float desired_id = 0.0;
-    float actual_iq = lpf_iq_.filter(iq_d.I_q);
-    float actual_id = lpf_id_.filter(iq_d.I_d);
+    float electrical_angle = _normalizeAngle((float)(-1 * pole_pairs) * shaft_angle - zero_eletrical_angle_);
+
+    // Read currents
+    current_sense_.sample();
     
-    auto kp = 0.1;
-    auto ki = 0.1;
+    // Clarke and Park transforms
+    ClarkeOutput clarke_output = foc_.clarke(current_sense_.get_iu(), current_sense_.get_iv(), current_sense_.get_iw());
+    ParkOutput park_output = foc_.park(clarke_output, electrical_angle);
 
-    float error_iq = desired_iq - actual_iq;
-    float error_id = desired_id - actual_id;
+    // Desired currents
+    float id_desired = 0.0f;
+    float iq_desired = -0.2f;
 
-    float Uq = kp * error_iq;
-    float Ud = kp * error_id;
+    float err_d = id_desired - park_output.I_d;
+    float err_q = iq_desired - park_output.I_q;
 
-    if (Uq > 1) {
-        Uq = 1;
-    } else if (Uq < -1) {
-        Uq = -1;
-    }
+    // PID controllers for Id and Iq
+    float ud = pid_id_.compute(id_desired, park_output.I_d);
+    float uq = pid_iq_.compute(iq_desired, park_output.I_q);
 
-    if (Ud > 1) {
-        Ud = 1;
-    } else if (Ud < -1) {
-        Ud = -1;
-    }
+    set_phase_voltage_(uq,ud, electrical_angle);
 
-    set_phase_voltage_(Uq, Ud, electrical_angle);
-    
+
 }

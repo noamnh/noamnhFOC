@@ -38,8 +38,8 @@ public:
     FieldOrientedControl();
 
     VoltagePhases inverseClarke(InverseParkOutput inverse_park);
-    InverseParkOutput inversePark(float U_d, float U_q, float theta);
-    ClarkeOutput clarke(CurrentPhases currentPhases);
+    void inversePark(float U_d, float U_q, float theta, float &U_alfa, float &U_beta);
+    ClarkeOutput clarke(float I_a, float I_b, float I_c);
     ParkOutput park(ClarkeOutput clarke, float theta);
 
 

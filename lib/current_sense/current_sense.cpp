@@ -32,38 +32,31 @@ void CurrentSense::on_deactivate() {
     // Deactivate the current sense
 }
 
-CurrentPhases CurrentSense::sample() {
+void CurrentSense::sample() {
     // Read raw ADC values
-    float raw_u = getAveragedADC(config_.u_pin);
-    float raw_v = getAveragedADC(config_.v_pin);
-    float raw_w = getAveragedADC(config_.w_pin);
+    float raw_u = adc1_get_raw((adc1_channel_t)config_.u_pin);
+    float raw_v = adc1_get_raw((adc1_channel_t)config_.v_pin);
+    float raw_w = adc1_get_raw((adc1_channel_t)config_.w_pin);
+
+    // Precompute voltage scaling factor
+    constexpr float ADC_SCALE = 3.3f / 4095.0f;
 
     // Convert raw ADC values to voltage (in volts)
-    float voltage_u = (raw_u * 3.3) / 4095;  
-    float voltage_v = (raw_v * 3.3) / 4095;
-    float voltage_w = (raw_w * 3.3) / 4095;
+    float voltage_u = raw_u * ADC_SCALE - offset_u_;
+    float voltage_v = raw_v * ADC_SCALE - offset_v_;
+    float voltage_w = raw_w * ADC_SCALE - offset_w_;
 
-    // Subtract offset (1.65V reference)
-    voltage_u -= offset_u_;
-    voltage_v -= offset_v_;
-    voltage_w -= offset_w_;
+    // Precompute current conversion factor
+    float current_factor = 1.0f / (config_.shunt_resistance * config_.gain);
 
-    // Compute current using current gain
-    float current_u = voltage_u /(config_.shunt_resistance * config_.gain);
-    float current_v = voltage_v /(config_.shunt_resistance * config_.gain);
-    float current_w = voltage_w /(config_.shunt_resistance * config_.gain);
+    // Compute currents using precomputed factor
+     iu_ = voltage_u * current_factor;
+     iv_ = voltage_v * current_factor;
+     iw_ = voltage_w * current_factor;
+
     
-    CurrentPhases currentPhases;
-    currentPhases.I_a = current_u;
-    currentPhases.I_b = current_v;
-    currentPhases.I_c = current_w;
-
-    current_ = currentPhases;
-    
-    return currentPhases;
-    
-
 }
+
 
 void CurrentSense::calibrate() {
 
@@ -84,13 +77,12 @@ void CurrentSense::calibrate() {
         offset_u += voltage_u;
         offset_v += voltage_v;
         offset_w += voltage_w;
-        vTaskDelay(1 / portTICK_PERIOD_MS);
         
     }
     offset_u /= 1000;
     offset_v /= 1000;
     offset_w /= 1000;
     set_offsets(offset_u/1000, offset_v/1000, offset_w/1000);
-    // printf("CurrentSense Calibration - U: %f mV, V: %f mV\n", offset_u_, offset_v_);
+    printf("Offsets: %f, %f, %f\n", offset_u, offset_v, offset_w);
     // Calibrate the current sense
 }
