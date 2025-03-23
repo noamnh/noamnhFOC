@@ -53,6 +53,16 @@ struct FOCControllerConfig{
     float alignment_voltage = 0.5;
 };
 
+typedef struct {
+    float shaft_angle;
+    float iq;
+    float id;
+    float i;
+    // float uq;
+    // float ud;
+} DebugData;
+
+
 class FOCController {
     public:
 
@@ -66,7 +76,8 @@ class FOCController {
     void run();
     void stop();
     bool align();
-
+    void start_debug_task();
+    void start_current_sample_task();
     float getShaftAngle();
     float getShaftVelocity();
     float getElectricalAngle();
@@ -111,6 +122,7 @@ class FOCController {
     }
     
 
+    QueueHandle_t debug_queue = nullptr;
 
     private:
     Inverter inverter_;
@@ -123,8 +135,10 @@ class FOCController {
     LowPassFilter lpf_id_;
     LowPassFilter lpf_shaft_angle_;
     
-    PIDController pid_id_{0.05, 0.02, 0.01, 0.3, -0.3}; // Adjust gains
-    PIDController pid_iq_{0.05, 0.02, 0.01, 0.3, -0.3}; // Adjust gains
+    PIDController pid_id_{0.0, 0.0, 0.0, 1.0, -1.0}; // Adjust gains
+    PIDController pid_iq_{0.3,2.0, 0.0, 0.2, -0.2}; // Adjust gains
+    PIDController pid_velocity_{1.2, 0.5, 0.0, 0.3, -0.3}; // Adjust gains
+    PIDController pid_position_{0.1, 0.01, 0.0, 0.3, -0.3}; // Adjust gains
 
     SensorDirection sensor_direction_ = SensorDirection::NOT_DEFINED;
     FOCState state_ = FOCState::STOPPED;
@@ -144,6 +158,10 @@ class FOCController {
     float calculate_shaft_velocity_(float shaft_angle);
     void velocity_control_(float desired_velocity);
     void test_after_align();
-    void test_closed_loop_velocity();
-    void current_closed_loop();
+    void velocity_closed_loop(float velocity_desired);
+    void current_closed_loop(float iq_desired);
+    void position_closed_loop(float position_desired);
+     static void debug_task(void* param);
+     static void current_sample_task(void* param);
+
 };

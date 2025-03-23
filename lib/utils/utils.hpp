@@ -3,15 +3,17 @@
 #include "esp_timer.h"
 #include <cmath>
 
-#define _SQRT3_2 0.86602540378f
-#define _PI_2 1.57079632679f
-#define _2PI 6.28318530718f
-#define _PI 3.14159265359f
-#define _3PI_2 4.71238898038f
-#define _SQRT3 1.73205080757f
-#define DEG_TO_RAD 0.01745329251
-#define RAD_TO_DEG 57.2957795131
-#define INV_SQRT3 0.57735026919f // Precomputed 1/sqrt(3)
+
+constexpr float SQRT3 = 1.73205080757f;
+constexpr float INV_SQRT3 = 0.57735026919f;
+constexpr float _2PI = 6.28318530718f;
+constexpr float _PI = 3.14159265359f;
+constexpr float _3PI_2 = 4.71238898038f;
+constexpr float _SQRT3 = 1.73205080757f;
+constexpr float DEG_TO_RAD = 0.01745329251;
+constexpr float RAD_TO_DEG = 57.2957795131;
+constexpr float _SQRT3_2 = 0.86602540378f;
+constexpr float _PI_2 = 1.57079632679f;
 
 template <typename T>
 T clamp(T value, T min_val, T max_val) {

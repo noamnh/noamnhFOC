@@ -10,6 +10,7 @@
 #include "esp_timer.h"
 
 
+
 FieldOrientedControl foc;
 Inverter inverter;
 FOCController controller;
@@ -19,6 +20,8 @@ CurrentSense current_sense;
 InverterConfig inverter_config;
 MotorConfig motor_config;
 CurrentSenseConfig current_sense_config;
+
+
 
 constexpr float PI = 3.14159265358979f;
 constexpr float V_SUPPLY = 12.0f;
@@ -52,10 +55,6 @@ extern "C" void app_main() {
     motor_config.pole_pairs = POLE_PAIRS;
     motor_config.max_voltage = V_SUPPLY;
     motor.on_configure(motor_config);
-    current_sense_config.u_pin = ADC_U_PIN;
-    current_sense_config.v_pin = ADC_V_PIN;
-    current_sense_config.w_pin = ADC_W_PIN;
-    current_sense.on_configure(current_sense_config);
     controller.on_init(inverter, encoder, motor, current_sense);
 
     vTaskDelay(3000 / portTICK_PERIOD_MS);
@@ -64,6 +63,9 @@ extern "C" void app_main() {
     controller.align();
 
     controller.on_activate();
+
+    // controller.start_current_sample_task();
+    
       const esp_timer_create_args_t timer_args = {
         .callback = &focControllerCallback,
         .arg = nullptr,
@@ -82,6 +84,8 @@ extern "C" void app_main() {
     if (ret != ESP_OK) {
         // Handle error
     }
+
+    controller.start_debug_task();
 
 }
 

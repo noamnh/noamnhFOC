@@ -26,9 +26,9 @@ void FOCController::on_init(Inverter& inverter, EncoderI2C& encoder, Motor& moto
     encoder_.init();
     current_sense_.on_init();
 
-    lpf_id_.setAlpha(0.5);
-    lpf_iq_.setAlpha(0.5);
-    lpf_vel_.setAlpha(0.2);
+    lpf_id_.setAlpha(0.2);
+    lpf_iq_.setAlpha(0.01);
+    lpf_vel_.setAlpha(0.1);
     lpf_shaft_angle_.setAlpha(0.1);
     lpf_vel_.on_init(encoder_.getVelocity());
     lpf_shaft_angle_.on_init(encoder_.getAngle());
@@ -46,8 +46,9 @@ void FOCController::on_deactivate() {
 }
 
 void FOCController::run() {
-    // current_closed_loop();
-    test_after_align();
+    // current_closed_loop(0.2);
+    velocity_closed_loop(20);
+    // test_after_align();
 }
 
 void FOCController::stop() {
@@ -105,7 +106,6 @@ SensorDirection FOCController::findSensorDirection() {
         set_phase_voltage_(config_.alignment_voltage, 0, angle);
         encoder_.read();
         current_sense_.sample();
-        float velocity = lpf_vel_.filter(encoder_.getVelocity());
         vTaskDelay(2 / portTICK_PERIOD_MS);
     }
 
@@ -118,7 +118,8 @@ SensorDirection FOCController::findSensorDirection() {
         float angle = _3PI_2 + _2PI * i / 500.0f;
         set_phase_voltage_(config_.alignment_voltage, 0, angle);
         encoder_.read();
-        
+        current_sense_.sample();
+
         vTaskDelay(2 / portTICK_PERIOD_MS);
     }
 
@@ -267,52 +268,136 @@ void FOCController::test_after_align() {
     prev_electrical_angle = filtered_electrical_angle;
     
     // Apply the filtered angle for motor control
-    set_phase_voltage_(0.15, 0, filtered_electrical_angle + 0.05);
+    set_phase_voltage_(0.5, 0, filtered_electrical_angle + 0.05);
+}
+
+
+
+void FOCController::current_closed_loop(float iq_desired) {
+    // Read encoder and compute electrical angle
+
+    static float prev_electrical_angle = 0;
+    static bool first_run = true;
+
+    encoder_.read();
+    float shaft_angle = encoder_.getAngle();
+    int pole_pairs = motor_.get_config().pole_pairs;
+    float raw_electrical_angle = _normalizeAngle((float)(-1.0*pole_pairs)*shaft_angle - zero_eletrical_angle_);
+
+    // Read currents
+
+        // Apply proper angle filtering that handles wraparound
+        float filtered_electrical_angle = filter_angle(raw_electrical_angle, prev_electrical_angle);
     
-    // Optional debugging
-    static int counter = 0;
-    if (counter++ % 100 == 0) {
-        printf("Shaft: %.4f, Raw Elec: %.4f, Filtered: %.4f\n", 
-               shaft_angle, raw_electrical_angle, filtered_electrical_angle);
+        // Save for next iteration
+        prev_electrical_angle = filtered_electrical_angle;
+
+    current_sense_.sample();
+    float i = current_sense_.get_i();
+    // Clarke and Park transforms
+
+    ClarkeOutput clarke_output = foc_.clarke(current_sense_.get_iu(), current_sense_.get_iv(), current_sense_.get_iw());
+    ParkOutput park_output = foc_.park(clarke_output, filtered_electrical_angle);
+    
+
+    float iq = lpf_iq_.filter(park_output.I_q);
+    float id = lpf_id_.filter(park_output.I_d);
+    // ESP_LOGI("Currents", "Id: %f, Iq: %f, I supply: %f", park_output.I_d, park_output.I_q, current_sense_.get_i());
+    // Desired currents
+    float id_desired = 0.0f;
+
+
+    // PID controllers for Id and Iq
+    float dt = 1.0/20000.0;
+    float ud = pid_id_.compute(id_desired, id, dt);
+    float uq = pid_iq_.compute(iq_desired, iq, dt);
+
+    set_phase_voltage_(uq,0.0, filtered_electrical_angle+0.05);
+
+    // DebugData data = {
+    //     .shaft_angle = shaft_angle,
+    //     .iq = iq,
+    //     .id = id,
+    //     .i = i,
+    // };
+    
+    // // Send without blocking
+    // xQueueSend(debug_queue, &data, 0);  // 0 ticks wait
+
+}
+
+
+void FOCController::velocity_closed_loop(float velocity_desired) {
+
+
+    float actual_velocity = encoder_.getVelocity();
+    float filtered_velocity = lpf_vel_.filter(actual_velocity);
+
+    
+    float dt = 1.0/20000.0;
+
+    float iq = pid_velocity_.compute(velocity_desired, -1*filtered_velocity, dt);
+    current_closed_loop(iq);
+
+        DebugData data = {
+        .shaft_angle = filtered_velocity,
+        .iq = iq,
+        .id = 0,
+        .i = current_sense_.get_i(),
+    };
+    
+    // Send without blocking
+    xQueueSend(debug_queue, &data, 0);  // 0 ticks wait
+
+}
+
+void FOCController::debug_task(void* param) {
+    FOCController* self = static_cast<FOCController*>(param);  // Cast to object
+
+    DebugData debug_data;
+    while (true) {
+        if (xQueueReceive(self->debug_queue, &debug_data, portMAX_DELAY)) {
+            // Replace with GPIO toggle or UDP later if needed
+            // Or just keep as is:
+            ESP_LOGI("Debug", "Shaft angle: %f, Iq: %f, Id: %f, I: %f,", 
+                     debug_data.shaft_angle, debug_data.iq, debug_data.id, 
+                     debug_data.i);
+        }
+        vTaskDelay(100 / portTICK_PERIOD_MS);  // 10 ms delay
     }
 }
 
-void FOCController::test_closed_loop_velocity() {
-    encoder_.read();
-    float shaft_angle = encoder_.getAngle();
-    shaft_angle = lpf_shaft_angle_.filter(shaft_angle);
-    int sensor_direction = -1;
-    int pole_pairs = motor_.get_config().pole_pairs;
-    float electrical_angle = _normalizeAngle((float)(-1*pole_pairs)*shaft_angle - zero_eletrical_angle_);
-    auto kp = 0.1;
+void FOCController::current_sample_task(void* param) {
+    FOCController* self = static_cast<FOCController*>(param);  // Cast to object
+
+    while (true) {
+        self->current_sense_.sample();
+        vTaskDelay(100 / portTICK_PERIOD_MS);  // 10 ms delay
+    }
 }
 
-void FOCController::current_closed_loop() {
-    // Read encoder and compute electrical angle
-    encoder_.read();
-    float shaft_angle = encoder_.getAngle();
-    int pole_pairs = motor_.get_config().pole_pairs;
-    float electrical_angle = _normalizeAngle((float)(-1 * pole_pairs) * shaft_angle - zero_eletrical_angle_);
 
-    // Read currents
-    current_sense_.sample();
-    
-    // Clarke and Park transforms
-    ClarkeOutput clarke_output = foc_.clarke(current_sense_.get_iu(), current_sense_.get_iv(), current_sense_.get_iw());
-    ParkOutput park_output = foc_.park(clarke_output, electrical_angle);
+void FOCController::start_current_sample_task() {
+    // Start the current sample task
+    xTaskCreate(
+        FOCController::current_sample_task,  // Static function pointer
+        "current_sample_task",
+        4096,
+        this,       // <--- pass the object
+        1,
+        NULL
+    );
+}
 
-    // Desired currents
-    float id_desired = 0.0f;
-    float iq_desired = -0.2f;
-
-    float err_d = id_desired - park_output.I_d;
-    float err_q = iq_desired - park_output.I_q;
-
-    // PID controllers for Id and Iq
-    float ud = pid_id_.compute(id_desired, park_output.I_d);
-    float uq = pid_iq_.compute(iq_desired, park_output.I_q);
-
-    set_phase_voltage_(uq,ud, electrical_angle);
-
-
+void FOCController::start_debug_task() {
+    // Start the debug task
+    debug_queue = xQueueCreate(10, sizeof(DebugData));
+    xTaskCreate(
+        FOCController::debug_task,  // Static function pointer
+        "debug_task",
+        4096,
+        this,       // <--- pass the object
+        1,
+        NULL
+    );
 }
