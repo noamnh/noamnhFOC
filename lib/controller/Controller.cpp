@@ -47,7 +47,7 @@ void FOCController::on_deactivate() {
 
 void FOCController::run() {
     // current_closed_loop(0.2);
-    velocity_closed_loop(20);
+    velocity_closed_loop(0.25);
     // test_after_align();
 }
 
@@ -312,7 +312,7 @@ void FOCController::current_closed_loop(float iq_desired) {
     float ud = pid_id_.compute(id_desired, id, dt);
     float uq = pid_iq_.compute(iq_desired, iq, dt);
 
-    set_phase_voltage_(uq,0.0, filtered_electrical_angle+0.05);
+    set_phase_voltage_(uq,ud, filtered_electrical_angle);
 
     // DebugData data = {
     //     .shaft_angle = shaft_angle,

@@ -137,7 +137,7 @@ class FOCController {
     
     PIDController pid_id_{0.0, 0.0, 0.0, 1.0, -1.0}; // Adjust gains
     PIDController pid_iq_{0.3,2.0, 0.0, 0.2, -0.2}; // Adjust gains
-    PIDController pid_velocity_{1.2, 0.5, 0.0, 0.3, -0.3}; // Adjust gains
+    PIDController pid_velocity_{0.5, 0.3, 0.0, 0.3, -0.3}; // Adjust gains
     PIDController pid_position_{0.1, 0.01, 0.0, 0.3, -0.3}; // Adjust gains
 
     SensorDirection sensor_direction_ = SensorDirection::NOT_DEFINED;
