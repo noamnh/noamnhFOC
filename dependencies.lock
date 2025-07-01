@@ -1,0 +1,15 @@
+dependencies:
+  espressif/iqmath:
+    component_hash: 407d5bc3fd358a73d2b09982918ab508b4e804cc547942c5979d226be86b7e75
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 1.11.0
+  idf:
+    component_hash: null
+    source:
+      type: idf
+    version: 5.4.0
+manifest_hash: dee8cac5fb8cb88e99859f6fe26fd94a421334b8f2e657f36b969166b895716d
+target: esp32s3
+version: 1.0.0
