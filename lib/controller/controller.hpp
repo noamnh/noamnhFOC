@@ -39,7 +39,14 @@ public:
     esp_err_t find_sensor_offset();
     esp_err_t open_loop(float speed_dps);
     esp_err_t main_loop();
-    private:
+
+    // Set open-loop parameters
+    void set_open_loop_params(float speed_dps, float uq, float ud = 0.0f, float sample_time_sec = 1.0f/1000.0f);
+
+    // Set controller mode
+    void set_mode(Mode mode);
+
+private:
     Inverter inv_;
     AS5600 sensor_;
 
@@ -48,6 +55,14 @@ public:
     motor motor_;
     Mode mode_ = STOP; // Current mode of the controller
 
+    // Open-loop parameters
+    float open_loop_speed_dps_ = 720.0f;
+    float open_loop_uq_ = 0.05f;
+    float open_loop_ud_ = 0.0f;
+    float open_loop_sample_time_sec_ = 1.0f / 1000.0f;
+    float open_loop_rad_per_sample_ = 720.0f * 3.14159265358979323846f / 180.0f * (1.0f / 1000.0f); // default
+
+    void open_loop_step();
 };
 
 

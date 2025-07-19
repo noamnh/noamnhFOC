@@ -26,6 +26,7 @@ esp_err_t Inverter::on_init() {
     config_.timer_config.resolution_hz = MCPWM_TIMER_RESOLUTION_HZ; // Timer resolution
     config_.timer_config.count_mode = MCPWM_TIMER_COUNT_MODE_UP_DOWN; // Count mode
     config_.timer_config.period_ticks = MCPWM_PERIOD; // Period in ticks
+    config_.timer_config.intr_priority = 0; // Explicitly set interrupt priority to fix error
 
     config_.operator_config.group_id = 0; // MCPWM group ID
 
@@ -87,9 +88,9 @@ ESP_LOGI("Inverter", "Timer pointer: %p", mcpwm_handler_.timer);
         mcpwm_generator_set_dead_time(mcpwm_handler_.generators[i][0], mcpwm_handler_.generators[i][1], &config_.inv_dt_config);
     }
 
-        gpio_set_direction(GPIO_NUM_9, GPIO_MODE_OUTPUT);
+        gpio_set_direction(GPIO_NUM_38, GPIO_MODE_OUTPUT);
     // put gpio on 0
-    gpio_set_level(GPIO_NUM_9, 0);
+    gpio_set_level(GPIO_NUM_38, 0);
 
     ESP_LOGI("Inverter", "MCPWM operators, comparators and generators created successfully.");
     return ESP_OK;
@@ -122,7 +123,7 @@ ESP_LOGI("Inverter", "Timer pointer: %p", mcpwm_handler_.timer);
         return ret;
     }
 
-    gpio_set_level(GPIO_NUM_9, 1); // enable inverter
+    gpio_set_level(GPIO_NUM_38, 1); // enable inverter
     ESP_LOGI("Inverter", "MCPWM timer started successfully.");
     return ESP_OK;
 }

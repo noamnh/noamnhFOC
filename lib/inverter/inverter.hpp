@@ -7,12 +7,13 @@
 #include <algorithm> // For std::max and std::min
 
 struct inverter_config{
-int phase_a_high = 25;  // Phase A high-side
-int phase_a_low = 26;   // Phase A low-side
-int phase_b_high = 27;  // Phase B high-side
-int phase_b_low = 14;   // Phase B low-side
-int phase_c_high = 12;  // Phase C high-side
-int phase_c_low = 13;   // Phase C low-side
+int phase_a_high = 1;  // Phase A high-side
+int phase_a_low = 2;   // Phase A low-side
+int phase_b_high = 42;  // Phase B high-side
+int phase_b_low = 41;   // Phase B low-side
+int phase_c_high = 40;  // Phase C high-side
+int phase_c_low = 39;   // Phase C low-side
+int enable_pin = 38;    // Enable pin
 } ;
 
 

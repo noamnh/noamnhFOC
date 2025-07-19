@@ -3,11 +3,11 @@
 #include "driver/gpio.h"
 #define UH 1
 #define UL 2
-#define VH 3
-#define VL 4
-#define WH 7
-#define WL 8
-#define ENABLE 9
+#define VH 42
+#define VL 41
+#define WH 40
+#define WL 39
+#define ENABLE 38
 
 #define MCPWM_TIMER_RESOLUTION_HZ 20000000 // 10 MHz timer resolution 1 tick = 0.1µs
 #define MCPWM_PERIOD 1000
