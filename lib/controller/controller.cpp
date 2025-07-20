@@ -1,5 +1,6 @@
 #include "controller.hpp"
 #include <math.h>
+#include "esp_timer.h"
 
 Controller::Controller() {
     // Constructor implementation
@@ -19,6 +20,8 @@ esp_err_t Controller::on_configure() {
 esp_err_t Controller::on_init() {
     // Initialize the controller
     ESP_LOGI("Controller", "Initializing controller...");
+    // current_observer_.on_init();
+    // current_observer_.on_configure(7, 8, 3); // P
     generateSinCosTable(); // Generate sine and cosine tables for FOC
     update_semaphore_ = xSemaphoreCreateCounting(1, 0);
     inv_.on_init();
@@ -54,7 +57,6 @@ void Controller::set_open_loop_params(float speed_dps, float uq, float ud, float
 void Controller::set_mode(Mode mode) {
     mode_ = mode;
 }
-
 // --- Open Loop Step ---
 void Controller::open_loop_step() {
     static float angle = 0.0f;
@@ -63,24 +65,112 @@ void Controller::open_loop_step() {
     if (angle > 2.0f * M_PI) {
         angle -= 2.0f * M_PI;
     }
-    inverse_park(open_loop_ud_, open_loop_uq_, angle, alpha, beta);
+    
+    // Bus voltage normalization
+    float one_over_Vbus_voltage = 1.0f / motor_.vbus_voltage;
+    float mod_q = open_loop_uq_ * one_over_Vbus_voltage;
+    float mod_d = open_loop_ud_ * one_over_Vbus_voltage;
+    
+    // Modulation limiting
+    const float PWM_LIMIT = 0.95f;  // 95% modulation limit
+    const float dq_mod_scale_factor = PWM_LIMIT * fast_inv_sqrt((mod_q * mod_q) + (mod_d * mod_d));
+    
+    if (dq_mod_scale_factor < 1.0f) {
+        mod_q *= dq_mod_scale_factor;
+        mod_d *= dq_mod_scale_factor;
+    }
+    
+    inverse_park(mod_d, mod_q, angle, alpha, beta);
     SVM(alpha, beta, &ia, &ib, &ic);
+    
+    // Debug logging every 1000 steps
+    static int step_counter = 0;
+    // if (++step_counter % 1000 == 0) {
+    //     ESP_LOGI("Controller", "PWM Duty: A=%.3f, B=%.3f, C=%.3f", ia, ib, ic);
+    // }
+    
     inv_.set_duty_cycle(ia, ib, ic);
+}
+
+void Controller::close_loop_step() {
+    // get the current from the current observer
+    // clark transform
+    // park transform
+    // lp filter
+    // calculate the error
+    // calculate the pid
+    // calculate Vq and Vd 
+    // normalize the Vq and Vd
+    // I bus estimation 
+    // inverse park transform
+    // SVM
+    // set the duty cycle   
+
 }
 
 esp_err_t Controller::main_loop() {
     esp_err_t ret = ESP_OK;
     vTaskDelay(1000 / portTICK_PERIOD_MS); // Wait for 1 second before starting the main loop
-    // float ud = 0.0;
-    // float uq = 0.05;
-    // float speed_dps = 720; // desired speed in degrees per second
-    // float speed_rps = speed_dps * PI / 180.0f; // rad/sec
-    // float sample_time_sec = 1.0f / 1000.0f; // your loop period (2 ms)
-    // set_open_loop_params(speed_dps, uq, ud, sample_time_sec);
-        while(true){
+    current_sense::Config config;
+    config.shunt_resistor = 0.005f;
+    config.amplifier_gain = 270.0f;  // Back to original calibrated value
+    config.lpf_gain = 0.5f;
+
+
+    current_observer_.on_init();
+    current_observer_.on_configure(7, 8, 3, config);
+    // Using the calculated amplifier gain of 200x
+    current_observer_.on_activate();
+    current_observer_.on_calibrate();
+    // current_observer_.on_calibrate_ema();
+
+    // calibrate_phase_resistance();
+    // calibrate_phase_inductance();
+
+    current_sum_log_.clear();
+    current_sum_log_.reserve(1000); // Pre-allocate space for efficiency
+
+    float ia, ib, ic;
+    int64_t start_time = esp_timer_get_time(); // microseconds
+    int64_t duration = 5 * 1000000; // 5 seconds in microseconds
+    float current_sum = 0.0f;
+
+    while(true){
+        int64_t now = esp_timer_get_time();
+        if ((now - start_time) >= duration) {
+            break;
+        }
                 xSemaphoreTake(update_semaphore_, portMAX_DELAY);
                 open_loop_step();
+                current_observer_.get_currents(ia, ib, ic);
+                
+                // Log every 1000 iterations
+                static int counter = 0;
+                // static float current_sum = 0.0f;
+
+                if (++counter % 1000 == 0) {
+                     current_sum = 0.5f * (fabsf(ia) + fabsf(ib) + fabsf(ic)) + 0.5f * current_sum;
+                    // ESP_LOGI("Controller", "Sum=%.3f A", current_sum);
+                    current_sum_log_.push_back(current_sum);
+                }
+            
         }
+
+        // Log all collected current sum values at the end
+        ESP_LOGI("Controller", "=== Current Sum Log ===");
+        ESP_LOGI("Controller", "Total samples: %zu", current_sum_log_.size());
+        ESP_LOGI("Controller", "Gain used: %f", config.amplifier_gain);
+        
+        for (size_t i = 0; i < current_sum_log_.size(); i++) {
+            ESP_LOGI("Controller", "Sample %zu: Sum=%.3f A", i, current_sum_log_[i]);
+        }
+        
+        ESP_LOGI("Controller", "=== End Current Sum Log ===");
+        current_sum_log_.clear();
+
+        ESP_LOGI("Controller", "Open loop finished.");
+        inv_.on_deactivate();
+
         return ret;
 
 
@@ -94,3 +184,94 @@ bool Controller::update(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data
 }
 
 
+esp_err_t Controller::calibrate_phase_resistance() {
+    float ia = 0.0f, ib = 0.0f, ic = 0.0f;
+    float actual_current = 0.0f;
+    float v_bus = 12.0f;
+    float v_target = 0.0f;
+    float max_voltage = 5.0f;
+    float min_current = 0.5f;
+    float target_current = 0.8f;
+
+    inv_.on_activate(); // Turn on inverter (set up PWM timers, etc.)
+
+    for (int i = 0; i < 2 * PWM_FREQUENCY; i++) {
+        xSemaphoreTake(update_semaphore_, portMAX_DELAY); // Wait for PWM update
+
+        // Slowly ramp up target voltage
+        v_target += 0.01f;
+        if (v_target > max_voltage) break;
+
+        // Apply the voltage vector: force voltage between Phase A and B
+        float duty = v_target / v_bus;
+        inv_.set_duty_cycle(duty, -duty, 0.0f); // AB active, C floating
+
+        // Read current
+        current_observer_.get_currents(ia, ib, ic);
+
+        // Current in AB line is approximately ia or -ib (assuming symmetry)
+        actual_current = fabsf(ia); // or (fabsf(ia) + fabsf(ib)) * 0.5f
+
+        // Stop when you reach target current
+        if (actual_current >= target_current && actual_current >= min_current) {
+            break;
+        }
+    }
+
+    // Shut down PWM and inverter
+    inv_.set_duty_cycle(0.0f, 0.0f, 0.0f);
+    inv_.on_deactivate();
+
+    // Final resistance calculation (single phase)
+    float R = v_target / (2.0f * actual_current);
+    ESP_LOGI("Controller", "Phase resistance: %.4f Ω", R);
+
+    // Store or return R as needed
+    return ESP_OK;
+}
+
+    
+
+esp_err_t Controller::calibrate_phase_inductance() {
+    float duty = 0.05f; // 5% duty
+    float v_bus = 12.0f;
+    float v_applied = duty * v_bus;
+    float dt = 0.00005f; // 50 us
+    int num_samples = 8;
+    float L_sum = 0.0f;
+
+    inv_.on_activate();
+    inv_.set_duty_cycle(0.0f, 0.0f, 0.0f);
+    vTaskDelay(1); // Wait for settling
+
+    for (int n = 0; n < num_samples; ++n) {
+        float ia_start = 0.0f, ib = 0.0f, ic = 0.0f;
+        float ia_end = 0.0f;
+
+        // Read initial current
+        current_observer_.get_currents(ia_start, ib, ic);
+
+        // Apply voltage pulse (A = +duty, B = -duty, C = floating)
+        inv_.set_duty_cycle(duty, -duty, 0.0f);
+        esp_rom_delay_us(50); // 50 us pulse
+
+        // Read final current
+        current_observer_.get_currents(ia_end, ib, ic);
+
+        // Stop PWM
+        inv_.set_duty_cycle(0.0f, 0.0f, 0.0f);
+        vTaskDelay(1); // Wait for settling between pulses
+
+        float delta_i = fabsf(ia_end - ia_start);
+        if (delta_i > 1e-6f) { // Avoid div by zero
+            float L = (v_applied * dt) / delta_i;
+            L_sum += L;
+        }
+    }
+    inv_.set_duty_cycle(0.0f, 0.0f, 0.0f);
+    inv_.on_deactivate();
+
+    float L_avg = L_sum / num_samples;
+    ESP_LOGI("Controller", "Phase inductance: %.2f uH (avg of %d)", L_avg * 1e6, num_samples);
+    return ESP_OK;
+}

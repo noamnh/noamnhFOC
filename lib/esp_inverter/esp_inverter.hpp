@@ -9,8 +9,10 @@
 #define WL 39
 #define ENABLE 38
 
-#define MCPWM_TIMER_RESOLUTION_HZ 20000000 // 10 MHz timer resolution 1 tick = 0.1µs
+#define PWM_FREQUENCY 20000
+#define PWM_PERIOD_SEC 1.0f / PWM_FREQUENCY
 #define MCPWM_PERIOD 1000
+#define MCPWM_TIMER_RESOLUTION_HZ (PWM_FREQUENCY * MCPWM_PERIOD)
 
 typedef struct inverter_config_t {
     mcpwm_timer_config_t timer_config;          // pwm timer and timing config

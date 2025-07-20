@@ -106,6 +106,11 @@ static inline bool clampc(float *d, const float min, const float max)
     return (*d == min) || (*d == max);
 }
 
+// Fast inverse square root (for modulation limiting)
+static inline float fast_inv_sqrt(float x) {
+    if (x <= 0.0f) return 1.0f;  // Avoid division by zero
+    return 1.0f / sqrtf(x);
+}
 
 
 static inline int SVM(float alpha, float beta, float* tA, float* tB, float* tC)
@@ -259,4 +264,22 @@ static inline void inverse_clarke(float alpha, float beta, float &ia, float &ib,
     ic = -0.5f * alpha - 0.86602540378f * beta;
     // log the alpha and beta values
     // ESP_LOGI("inverse_clarke", "alpha: %f, beta: %f", alpha, beta);
+}
+
+static inline void clark_transform(float ia, float ib, float ic, float &i_alpha, float &i_beta) {
+    i_alpha = ia;
+    i_beta = one_by_sqrt3 * (ib - ic);
+    // log the alpha and beta values
+    // ESP_LOGI("clark_transform", "alpha: %f, beta: %f", alpha, beta);
+}
+
+static inline void park_transform(float i_alpha, float i_beta, float thetha, float &id, float &iq) {
+    // Park transformation
+    float sin_theta, cos_theta;
+    fastSinCos(thetha, sin_theta, cos_theta);
+    id = i_alpha * cos_theta + i_beta * sin_theta;
+    iq = -i_alpha * sin_theta + i_beta * cos_theta;
+    // log the id and iq values
+    // ESP_LOGI("park_transform", "id: %f, iq: %f", id, iq);
+    // ESP_LOGI("park_transform", "ud: %f, uq: %f", ud, uq);
 }
