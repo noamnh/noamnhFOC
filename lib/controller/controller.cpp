@@ -20,14 +20,47 @@ esp_err_t Controller::on_configure() {
 esp_err_t Controller::on_init() {
     // Initialize the controller
     ESP_LOGI("Controller", "Initializing controller...");
-    // current_observer_.on_init();
-    // current_observer_.on_configure(7, 8, 3); // P
     generateSinCosTable(); // Generate sine and cosine tables for FOC
     update_semaphore_ = xSemaphoreCreateCounting(1, 0);
-    inv_.on_init();
+    mcpwm_comparator_event_callbacks_t adc_mid_point_event_callbacks = {};
+    adc_mid_point_event_callbacks.on_reach = Controller::update_adc_mid_point_event_callback;
+
+        current_sense::Config config;
+    config.shunt_resistor = 0.005f;
+    config.amplifier_gain = 270.0f;  // Back to original calibrated value
+    config.lpf_gain = 0.5f;
+
+
+    current_observer_.on_init();
+    current_observer_.on_configure(7, 8, 3, config);
+    // Using the calculated amplifier gain of 200x
+    current_observer_.on_activate();
+    current_observer_.on_calibrate();
+
+        // create the adc task
+    BaseType_t task_ret = xTaskCreatePinnedToCore(
+    Controller::adc_task,         // Task function
+    "adc_task",                   // Name
+    2048,                         // Stack size
+    this,                         // Task argument (this pointer)
+    10,                           // Priority
+    &adc_task_handle_,            // Task handle
+    0                             // Core (ESP32-S3: core 0 recommended)
+    );
+
+    inv_.on_init(&adc_mid_point_event_callbacks,this);
     mcpwm_timer_event_callbacks_t cbs = {};  // Initialize all fields to zero
     cbs.on_full = update; // Set the callback function for the timer event
     esp_err_t ret = inv_.set_inverter_callback(&cbs, &update_semaphore_);
+
+
+
+
+
+    if (task_ret != pdPASS) {
+        ESP_LOGE("Controller", "Failed to create ADC task: %s", esp_err_to_name(ret));
+        return ESP_FAIL;
+    }
     return ESP_OK;
 }
 esp_err_t Controller::on_activate() {
@@ -111,17 +144,7 @@ void Controller::close_loop_step() {
 esp_err_t Controller::main_loop() {
     esp_err_t ret = ESP_OK;
     vTaskDelay(1000 / portTICK_PERIOD_MS); // Wait for 1 second before starting the main loop
-    current_sense::Config config;
-    config.shunt_resistor = 0.005f;
-    config.amplifier_gain = 270.0f;  // Back to original calibrated value
-    config.lpf_gain = 0.5f;
 
-
-    current_observer_.on_init();
-    current_observer_.on_configure(7, 8, 3, config);
-    // Using the calculated amplifier gain of 200x
-    current_observer_.on_activate();
-    current_observer_.on_calibrate();
     // current_observer_.on_calibrate_ema();
 
     // calibrate_phase_resistance();
@@ -156,19 +179,19 @@ esp_err_t Controller::main_loop() {
             
         }
 
-        // Log all collected current sum values at the end
-        ESP_LOGI("Controller", "=== Current Sum Log ===");
-        ESP_LOGI("Controller", "Total samples: %zu", current_sum_log_.size());
-        ESP_LOGI("Controller", "Gain used: %f", config.amplifier_gain);
+        // // Log all collected current sum values at the end
+        // ESP_LOGI("Controller", "=== Current Sum Log ===");
+        // ESP_LOGI("Controller", "Total samples: %zu", current_sum_log_.size());
+        // ESP_LOGI("Controller", "Gain used: %f", config.amplifier_gain);
         
-        for (size_t i = 0; i < current_sum_log_.size(); i++) {
-            ESP_LOGI("Controller", "Sample %zu: Sum=%.3f A", i, current_sum_log_[i]);
-        }
+        // for (size_t i = 0; i < current_sum_log_.size(); i++) {
+        //     ESP_LOGI("Controller", "Sample %zu: Sum=%.3f A", i, current_sum_log_[i]);
+        // }
         
-        ESP_LOGI("Controller", "=== End Current Sum Log ===");
-        current_sum_log_.clear();
+        // ESP_LOGI("Controller", "=== End Current Sum Log ===");
+        // current_sum_log_.clear();
 
-        ESP_LOGI("Controller", "Open loop finished.");
+        // ESP_LOGI("Controller", "Open loop finished.");
         inv_.on_deactivate();
 
         return ret;
@@ -183,6 +206,35 @@ bool Controller::update(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data
     return task_woken;
 }
 
+
+bool IRAM_ATTR Controller::adc_mid_point_event_callback(mcpwm_cmpr_handle_t cmp, const mcpwm_compare_event_data_t *edata) {
+    BaseType_t task_woken = pdFALSE;
+    BaseType_t ok = xTaskNotifyFromISR(adc_task_handle_, 0, eNoAction, &task_woken);
+    ESP_DRAM_LOGI("ISR", "Notified=%d, task_woken=%d", ok, task_woken);
+
+    return task_woken == pdTRUE;
+}
+
+bool IRAM_ATTR Controller::update_adc_mid_point_event_callback(mcpwm_cmpr_handle_t cmp, const mcpwm_compare_event_data_t *edata, void *user_ctx) {
+    Controller* self = static_cast<Controller*>(user_ctx);  // ✅ FIXED
+    BaseType_t task_woken = pdFALSE;
+    BaseType_t ok = xTaskNotifyFromISR(self->adc_task_handle_, 0, eNoAction, &task_woken);
+    // ESP_DRAM_LOGI("ISR", "Notified=%d, task_woken=%d", ok, task_woken);
+
+    return task_woken == pdTRUE;
+}
+
+
+void Controller::adc_task(void* arg) {
+    Controller* self = static_cast<Controller*>(arg);
+    ESP_LOGI("Controller", "ADC task started, handle=%p", self->adc_task_handle_);
+    while (true) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // Wait for notify from ISR
+        // ESP_LOGI("Controller", "ADC task notified, processing data...");
+        // Safe to process current here
+        self->current_observer_.handle_dma_event();
+    }
+}
 
 esp_err_t Controller::calibrate_phase_resistance() {
     float ia = 0.0f, ib = 0.0f, ic = 0.0f;

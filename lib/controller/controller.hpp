@@ -52,6 +52,9 @@ public:
     esp_err_t on_deactivate();
     static bool update(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_ctx);
 
+    bool IRAM_ATTR adc_mid_point_event_callback(mcpwm_cmpr_handle_t cmp, const mcpwm_compare_event_data_t *edata);
+    static bool IRAM_ATTR update_adc_mid_point_event_callback(mcpwm_cmpr_handle_t cmp, const mcpwm_compare_event_data_t *edata, void *user_ctx);
+
     esp_err_t find_sensor_direction();
     esp_err_t find_sensor_offset();
     esp_err_t open_loop(float speed_dps);
@@ -92,6 +95,11 @@ private:
 
     void open_loop_step();
     void close_loop_step();
+
+    TaskHandle_t adc_task_handle_ = nullptr; // task handle for ADC sampling syncrionized and trigger by midpoint of pwm
+    static void adc_task(void* arg);
+
+
 };
 
 

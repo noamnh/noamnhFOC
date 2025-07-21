@@ -17,7 +17,7 @@ Inverter::~Inverter() {
 
 }
 
-esp_err_t Inverter::on_init() {
+esp_err_t Inverter::on_init(mcpwm_comparator_event_callbacks_t *mid_event, void *ctx) {
 
     esp_err_t ret;
 
@@ -32,12 +32,14 @@ esp_err_t Inverter::on_init() {
 
     config_.compare_config.flags.update_cmp_on_tez = true; // Update comparator on timer zero event
     
+
     config_.gen_gpios[0][0] = UH;
     config_.gen_gpios[0][1] = UL;
     config_.gen_gpios[1][0] = VH;
     config_.gen_gpios[1][1] = VL;
     config_.gen_gpios[2][0] = WH;
     config_.gen_gpios[2][1] = WL;
+
 
 
     config_.dt_config.posedge_delay_ticks = 5; // 0.5µs dead time for high side
@@ -87,6 +89,25 @@ ESP_LOGI("Inverter", "Timer pointer: %p", mcpwm_handler_.timer);
         mcpwm_generator_set_dead_time(mcpwm_handler_.generators[i][0], mcpwm_handler_.generators[i][0], &config_.dt_config);
         mcpwm_generator_set_dead_time(mcpwm_handler_.generators[i][0], mcpwm_handler_.generators[i][1], &config_.inv_dt_config);
     }
+
+
+    // create adc mid comparator
+    mcpwm_comparator_config_t adc_mid_point_config = {};
+    adc_mid_point_config.flags.update_cmp_on_tez = true; // Update on timer zero event
+
+     ret = mcpwm_new_comparator(mcpwm_handler_.operators[0], &adc_mid_point_config, &mcpwm_handler_.adc_mid_comparator);
+
+    if (ret != ESP_OK) {
+    ESP_LOGE("Inverter", "Failed to create midpoint comparator: %s", esp_err_to_name(ret));
+    return ret;
+    }
+
+    mcpwm_comparator_set_compare_value(mcpwm_handler_.adc_mid_comparator, config_.timer_config.period_ticks / 2);
+
+    // Register the midpoint comparator event callback
+    mcpwm_comparator_register_event_callbacks(mcpwm_handler_.adc_mid_comparator, mid_event, ctx);
+
+    ESP_LOGI("@@@@@@@@@@@@@@@@@@@@@@@", "Registering ADC callback, mid_event=%p, ctx=%p", mid_event, ctx);
 
         gpio_set_direction(GPIO_NUM_38, GPIO_MODE_OUTPUT);
     // put gpio on 0

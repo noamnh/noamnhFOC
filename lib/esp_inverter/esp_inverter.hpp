@@ -29,6 +29,7 @@ typedef struct mcpwm_handler_t {
     mcpwm_oper_handle_t operators[3];
     mcpwm_cmpr_handle_t comparators[3];
     mcpwm_gen_handle_t  generators[3][2];
+    mcpwm_cmpr_handle_t adc_mid_comparator;
 } mcpwm_handler_t;
 
 namespace inverter{
@@ -36,7 +37,7 @@ class Inverter {
 public:
 Inverter();
 ~Inverter();
-    esp_err_t on_init();
+    esp_err_t on_init(mcpwm_comparator_event_callbacks_t* event = nullptr, void* ctx = nullptr);
     esp_err_t on_activate();
     esp_err_t on_deactivate();
     esp_err_t set_duty_cycle(float duty_a, float duty_b, float duty_c);

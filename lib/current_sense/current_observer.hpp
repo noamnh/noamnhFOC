@@ -44,6 +44,7 @@ public:
     float  gain_ = 0.0f;
     int gain_count_ = 0;
     // float expected_current_ = 0.0f; // Expected current from power supply
+    void handle_dma_event();
 
 private:
     adc_continuous_handle_t adc_handle_ = nullptr;
@@ -71,7 +72,6 @@ private:
     Config config_;
 
     // Internal methods
-    void handle_dma_event();
 };
 
 } // namespace current_sense 

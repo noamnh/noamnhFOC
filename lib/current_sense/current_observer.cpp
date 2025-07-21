@@ -115,6 +115,7 @@ void CurrentObserver::handle_dma_event() {
         }
     }
     data_ready_ = true;
+    // ESP_LOGI("CurrentObserver", "Data ready: IA=%.2f, IB=%.2f, IC=%.2f", latest_ia, latest_ib, latest_ic);
 }
 
 // --- Calibration ---
@@ -187,7 +188,6 @@ esp_err_t CurrentObserver::on_calibrate_ema() {
 
 // --- Get Currents ---
 bool CurrentObserver::get_currents(float& ia, float& ib, float& ic) {
-    handle_dma_event();
     if (!data_ready_) return false;
     
 
