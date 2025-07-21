@@ -38,6 +38,13 @@ esp_err_t Controller::on_init() {
     current_observer_.on_calibrate();
 
         // create the adc task
+
+
+    inv_.on_init(&adc_mid_point_event_callbacks,this);
+    mcpwm_timer_event_callbacks_t cbs = {};  // Initialize all fields to zero
+    cbs.on_full = update; // Set the callback function for the timer event
+    esp_err_t ret = inv_.set_inverter_callback(&cbs, &update_semaphore_);
+
     BaseType_t task_ret = xTaskCreatePinnedToCore(
     Controller::adc_task,         // Task function
     "adc_task",                   // Name
@@ -47,13 +54,6 @@ esp_err_t Controller::on_init() {
     &adc_task_handle_,            // Task handle
     0                             // Core (ESP32-S3: core 0 recommended)
     );
-
-    inv_.on_init(&adc_mid_point_event_callbacks,this);
-    mcpwm_timer_event_callbacks_t cbs = {};  // Initialize all fields to zero
-    cbs.on_full = update; // Set the callback function for the timer event
-    esp_err_t ret = inv_.set_inverter_callback(&cbs, &update_semaphore_);
-
-
 
 
 
@@ -179,19 +179,19 @@ esp_err_t Controller::main_loop() {
             
         }
 
-        // // Log all collected current sum values at the end
-        // ESP_LOGI("Controller", "=== Current Sum Log ===");
-        // ESP_LOGI("Controller", "Total samples: %zu", current_sum_log_.size());
+        // Log all collected current sum values at the end
+        ESP_LOGI("Controller", "=== Current Sum Log ===");
+        ESP_LOGI("Controller", "Total samples: %zu", current_sum_log_.size());
         // ESP_LOGI("Controller", "Gain used: %f", config.amplifier_gain);
         
-        // for (size_t i = 0; i < current_sum_log_.size(); i++) {
-        //     ESP_LOGI("Controller", "Sample %zu: Sum=%.3f A", i, current_sum_log_[i]);
-        // }
+        for (size_t i = 0; i < current_sum_log_.size(); i++) {
+            ESP_LOGI("Controller", "Sample %zu: Sum=%.3f A", i, current_sum_log_[i]);
+        }
         
-        // ESP_LOGI("Controller", "=== End Current Sum Log ===");
-        // current_sum_log_.clear();
+        ESP_LOGI("Controller", "=== End Current Sum Log ===");
+        current_sum_log_.clear();
 
-        // ESP_LOGI("Controller", "Open loop finished.");
+        ESP_LOGI("Controller", "Open loop finished.");
         inv_.on_deactivate();
 
         return ret;
