@@ -27,7 +27,7 @@ esp_err_t Controller::on_init() {
 
         current_sense::Config config;
     config.shunt_resistor = 0.005f;
-    config.amplifier_gain = 270.0f;  // Back to original calibrated value
+    config.amplifier_gain = 260.0f;  // Back to original calibrated value
     config.lpf_gain = 0.5f;
 
 
@@ -43,7 +43,7 @@ esp_err_t Controller::on_init() {
     inv_.on_init(&adc_mid_point_event_callbacks,this);
     mcpwm_timer_event_callbacks_t cbs = {};  // Initialize all fields to zero
     cbs.on_full = update; // Set the callback function for the timer event
-    esp_err_t ret = inv_.set_inverter_callback(&cbs, &update_semaphore_);
+    esp_err_t ret = inv_.set_inverter_callback(&cbs, this);
 
     BaseType_t task_ret = xTaskCreatePinnedToCore(
     Controller::adc_task,         // Task function
@@ -147,7 +147,7 @@ esp_err_t Controller::main_loop() {
 
     // current_observer_.on_calibrate_ema();
 
-    // calibrate_phase_resistance();
+    calibrate_phase_resistance();
     // calibrate_phase_inductance();
 
     current_sum_log_.clear();
@@ -157,6 +157,7 @@ esp_err_t Controller::main_loop() {
     int64_t start_time = esp_timer_get_time(); // microseconds
     int64_t duration = 5 * 1000000; // 5 seconds in microseconds
     float current_sum = 0.0f;
+    int counter = 0;  // <-- FIXED: normal variable, resets each call
 
     while(true){
         int64_t now = esp_timer_get_time();
@@ -164,16 +165,17 @@ esp_err_t Controller::main_loop() {
             break;
         }
                 xSemaphoreTake(update_semaphore_, portMAX_DELAY);
+                // timestamps_.pwm_period_us = esp_timer_get_time();
                 open_loop_step();
                 current_observer_.get_currents(ia, ib, ic);
-                
-                // Log every 1000 iterations
-                static int counter = 0;
-                // static float current_sum = 0.0f;
+
 
                 if (++counter % 1000 == 0) {
+
                      current_sum = 0.5f * (fabsf(ia) + fabsf(ib) + fabsf(ic)) + 0.5f * current_sum;
-                    // ESP_LOGI("Controller", "Sum=%.3f A", current_sum);
+                    int64_t adc_us = timestamps_.adc_sample_time_us;
+                    int64_t pwm_us = timestamps_.pwm_period_us;
+                    // ESP_LOGI("Timing", "Δt (us) = %lld", adc_us - pwm_us);
                     current_sum_log_.push_back(current_sum);
                 }
             
@@ -183,10 +185,16 @@ esp_err_t Controller::main_loop() {
         ESP_LOGI("Controller", "=== Current Sum Log ===");
         ESP_LOGI("Controller", "Total samples: %zu", current_sum_log_.size());
         // ESP_LOGI("Controller", "Gain used: %f", config.amplifier_gain);
-        
+
+        float average_sum = 0.0f;
+
         for (size_t i = 0; i < current_sum_log_.size(); i++) {
-            ESP_LOGI("Controller", "Sample %zu: Sum=%.3f A", i, current_sum_log_[i]);
+            average_sum += current_sum_log_[i];
+            // ESP_LOGI("Controller", "Sample %zu: Sum=%.3f A", i, current_sum_log_[i]);
         }
+
+      average_sum /= current_sum_log_.size();
+        ESP_LOGI("Controller", "Average Current Sum: %.3f A", average_sum);
         
         ESP_LOGI("Controller", "=== End Current Sum Log ===");
         current_sum_log_.clear();
@@ -202,22 +210,17 @@ esp_err_t Controller::main_loop() {
 
 bool Controller::update(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_ctx) {
     BaseType_t task_woken = pdFALSE;
-    xSemaphoreGiveFromISR(*((SemaphoreHandle_t*)user_ctx), &task_woken);
+    Controller* self = static_cast<Controller*>(user_ctx);  // ✅ FIXED
+    self->timestamps_.pwm_period_us = esp_timer_get_time();       // PWM timer on_full
+    xSemaphoreGiveFromISR(self->update_semaphore_, &task_woken);
     return task_woken;
 }
 
 
-bool IRAM_ATTR Controller::adc_mid_point_event_callback(mcpwm_cmpr_handle_t cmp, const mcpwm_compare_event_data_t *edata) {
-    BaseType_t task_woken = pdFALSE;
-    BaseType_t ok = xTaskNotifyFromISR(adc_task_handle_, 0, eNoAction, &task_woken);
-    ESP_DRAM_LOGI("ISR", "Notified=%d, task_woken=%d", ok, task_woken);
-
-    return task_woken == pdTRUE;
-}
-
 bool IRAM_ATTR Controller::update_adc_mid_point_event_callback(mcpwm_cmpr_handle_t cmp, const mcpwm_compare_event_data_t *edata, void *user_ctx) {
     Controller* self = static_cast<Controller*>(user_ctx);  // ✅ FIXED
     BaseType_t task_woken = pdFALSE;
+    self->timestamps_.adc_sample_time_us = esp_timer_get_time();  // ADC midpoint ISR
     BaseType_t ok = xTaskNotifyFromISR(self->adc_task_handle_, 0, eNoAction, &task_woken);
     // ESP_DRAM_LOGI("ISR", "Notified=%d, task_woken=%d", ok, task_woken);
 
@@ -240,39 +243,42 @@ esp_err_t Controller::calibrate_phase_resistance() {
     float ia = 0.0f, ib = 0.0f, ic = 0.0f;
     float actual_current = 0.0f;
     float v_bus = 12.0f;
-    float v_target = 0.0f;
+    float v_target = 1.0f;
     float max_voltage = 5.0f;
     float min_current = 0.5f;
     float target_current = 0.8f;
 
-    inv_.on_activate(); // Turn on inverter (set up PWM timers, etc.)
+    // inv_.on_activate(); // Turn on inverter (set up PWM timers, etc.)
 
     for (int i = 0; i < 2 * PWM_FREQUENCY; i++) {
         xSemaphoreTake(update_semaphore_, portMAX_DELAY); // Wait for PWM update
 
         // Slowly ramp up target voltage
         v_target += 0.01f;
-        if (v_target > max_voltage) break;
+        if (v_target > max_voltage) {
+            ESP_LOGI("Controller", "Max voltage reached: %.2f V", max_voltage);
+            break;
+        }
 
-        // Apply the voltage vector: force voltage between Phase A and B
         float duty = v_target / v_bus;
         inv_.set_duty_cycle(duty, -duty, 0.0f); // AB active, C floating
 
-        // Read current
         current_observer_.get_currents(ia, ib, ic);
+
 
         // Current in AB line is approximately ia or -ib (assuming symmetry)
         actual_current = fabsf(ia); // or (fabsf(ia) + fabsf(ib)) * 0.5f
 
         // Stop when you reach target current
         if (actual_current >= target_current && actual_current >= min_current) {
+            ESP_LOGI("Controller", "Target current reached: %.3f A", actual_current);
             break;
         }
     }
 
     // Shut down PWM and inverter
     inv_.set_duty_cycle(0.0f, 0.0f, 0.0f);
-    inv_.on_deactivate();
+    // inv_.on_deactivate();
 
     // Final resistance calculation (single phase)
     float R = v_target / (2.0f * actual_current);

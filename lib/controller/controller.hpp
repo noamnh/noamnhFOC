@@ -41,6 +41,13 @@ struct Setpoint {
     float iq = 0.0f;
 };
 
+struct Timestamps {
+    int64_t pwm_period_us = 0; // PWM period in microseconds
+    int64_t adc_sample_time_us = 0; // ADC sample time in microseconds
+    int64_t control_loop_time_us = 0; // Control loop time in microseconds
+
+};
+
 class Controller {
 public:
     Controller();
@@ -52,7 +59,7 @@ public:
     esp_err_t on_deactivate();
     static bool update(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data_t *edata, void *user_ctx);
 
-    bool IRAM_ATTR adc_mid_point_event_callback(mcpwm_cmpr_handle_t cmp, const mcpwm_compare_event_data_t *edata);
+    // bool IRAM_ATTR adc_mid_point_event_callback(mcpwm_cmpr_handle_t cmp, const mcpwm_compare_event_data_t *edata);
     static bool IRAM_ATTR update_adc_mid_point_event_callback(mcpwm_cmpr_handle_t cmp, const mcpwm_compare_event_data_t *edata, void *user_ctx);
 
     esp_err_t find_sensor_direction();
@@ -98,6 +105,8 @@ private:
 
     TaskHandle_t adc_task_handle_ = nullptr; // task handle for ADC sampling syncrionized and trigger by midpoint of pwm
     static void adc_task(void* arg);
+
+    Timestamps timestamps_; // Timestamps for various operations
 
 
 };

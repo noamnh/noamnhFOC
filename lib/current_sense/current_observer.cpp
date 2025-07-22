@@ -115,7 +115,6 @@ void CurrentObserver::handle_dma_event() {
         }
     }
     data_ready_ = true;
-    // ESP_LOGI("CurrentObserver", "Data ready: IA=%.2f, IB=%.2f, IC=%.2f", latest_ia, latest_ib, latest_ic);
 }
 
 // --- Calibration ---
@@ -198,10 +197,6 @@ bool CurrentObserver::get_currents(float& ia, float& ib, float& ic) {
     const float raw_ib = (latest_ib - offset_ib_) * current_scale_factor_;
     const float raw_ic = (latest_ic - offset_ic_) * current_scale_factor_;
 
-    // if (debug_counter % 1000 == 0) {
-    //     ESP_LOGI("CurrentObserver", "Currents: IA=%.4f, IB=%.4f, IC=%.4f A", raw_ia, raw_ib, raw_ic);
-    // }
-    
     // Apply LPF with 3-phase constraint using pre-calculated gain
     // We are using 3 phase system so the sum is zero
     // We can filter between actual phase currents by subtracting the sum of the other two phases

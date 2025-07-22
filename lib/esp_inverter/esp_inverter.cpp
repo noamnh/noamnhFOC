@@ -10,8 +10,8 @@ T clamp(T value, T min_val, T max_val) {
 
 
 Inverter::Inverter() {
-    // Constructor implementation
-    ESP_LOGI("Inverter", "ESP Inverter instance created.");
+
+    
 }
 Inverter::~Inverter() {
 
@@ -53,13 +53,10 @@ esp_err_t Inverter::on_init(mcpwm_comparator_event_callbacks_t *mid_event, void 
         return ret;
     }
 
-    ESP_LOGI("Inverter", "MCPWM timer created successfully.");
-ESP_LOGI("Inverter", "Timer pointer: %p", mcpwm_handler_.timer);
 
      for (int i = 0; i < 3; i++) {
         mcpwm_new_operator(&config_.operator_config, &mcpwm_handler_.operators[i]);
         ret = mcpwm_operator_connect_timer(mcpwm_handler_.operators[i], mcpwm_handler_.timer);
-        ESP_LOGI("Inverter", "Connected operator %d to timer, ret=%s", i, esp_err_to_name(ret));
 
     }
 
@@ -101,19 +98,21 @@ ESP_LOGI("Inverter", "Timer pointer: %p", mcpwm_handler_.timer);
     ESP_LOGE("Inverter", "Failed to create midpoint comparator: %s", esp_err_to_name(ret));
     return ret;
     }
+    
+    // log the period ticks
 
-    mcpwm_comparator_set_compare_value(mcpwm_handler_.adc_mid_comparator, config_.timer_config.period_ticks / 2);
+    uint32_t period_ticks = config_.timer_config.period_ticks;
+
+    mcpwm_comparator_set_compare_value(mcpwm_handler_.adc_mid_comparator, 380);
 
     // Register the midpoint comparator event callback
     mcpwm_comparator_register_event_callbacks(mcpwm_handler_.adc_mid_comparator, mid_event, ctx);
 
-    ESP_LOGI("@@@@@@@@@@@@@@@@@@@@@@@", "Registering ADC callback, mid_event=%p, ctx=%p", mid_event, ctx);
 
         gpio_set_direction(GPIO_NUM_38, GPIO_MODE_OUTPUT);
     // put gpio on 0
     gpio_set_level(GPIO_NUM_38, 0);
 
-    ESP_LOGI("Inverter", "MCPWM operators, comparators and generators created successfully.");
     return ESP_OK;
     }
 
@@ -123,7 +122,6 @@ ESP_LOGI("Inverter", "Timer pointer: %p", mcpwm_handler_.timer);
         return ESP_FAIL;
     }
 
-    ESP_LOGI("Inverter", "Enabling MCPWM timer...");
     
     esp_err_t ret = mcpwm_timer_enable(mcpwm_handler_.timer);
     if (ret != ESP_OK) {
@@ -143,6 +141,7 @@ ESP_LOGI("Inverter", "Timer pointer: %p", mcpwm_handler_.timer);
         ESP_LOGE("Inverter", "Failed to set duty cycle: %s", esp_err_to_name(ret));
         return ret;
     }
+    
 
     gpio_set_level(GPIO_NUM_38, 1); // enable inverter
     ESP_LOGI("Inverter", "MCPWM timer started successfully.");
@@ -173,10 +172,6 @@ esp_err_t Inverter::set_duty_cycle(float duty_a, float duty_b, float duty_c) {
     cmp_b = clamp(cmp_b,0,config_.timer_config.period_ticks/2);
     cmp_c = clamp(cmp_c,0,config_.timer_config.period_ticks/2);
 
-    // log cmp_a b c
-    // ESP_LOGI("Inverter","a: %ld, b: %ld, c: %ld", cmp_a, cmp_b, cmp_c);
-    // i need to convert the duty of float to the units of the mcpwm right ? 
-    // Set duty cycle for each phase
     ret = mcpwm_comparator_set_compare_value(mcpwm_handler_.comparators[0], cmp_a);
     if (ret != ESP_OK) {
         ESP_LOGE("Inverter", "Failed to set duty cycle for Phase A: %s", esp_err_to_name(ret));
@@ -202,6 +197,6 @@ esp_err_t Inverter::set_inverter_callback(mcpwm_timer_event_callbacks_t *event, 
         ESP_LOGE("Inverter", "Failed to set inverter callback: %s", esp_err_to_name(ret));
         return ret;
     }
-    ESP_LOGI("Inverter", "Inverter callback set successfully.");
+
     return ESP_OK;
 }

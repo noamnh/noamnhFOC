@@ -13,6 +13,10 @@
 #define PWM_PERIOD_SEC 1.0f / PWM_FREQUENCY
 #define MCPWM_PERIOD 1000
 #define MCPWM_TIMER_RESOLUTION_HZ (PWM_FREQUENCY * MCPWM_PERIOD)
+#define TICK_DURATION_NS        (1000000000 / MCPWM_TIMER_RESOLUTION_HZ)       // 50 ns
+#define ADC_SAMPLE_OFFSET_US    6                      // Delay from true center in microseconds
+#define ADC_SAMPLE_OFFSET_TICKS ((ADC_SAMPLE_OFFSET_US * 1000) / TICK_DURATION_NS)  // 6 us = 120 ticks
+#define MCPWM_ADC_COMPARE_TICKS (MCPWM_PERIOD_TICKS / 2 + ADC_SAMPLE_OFFSET_TICKS)  // Midpoint + offset
 
 typedef struct inverter_config_t {
     mcpwm_timer_config_t timer_config;          // pwm timer and timing config
