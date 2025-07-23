@@ -148,7 +148,7 @@ esp_err_t Controller::main_loop() {
     // current_observer_.on_calibrate_ema();
 
     calibrate_phase_resistance();
-    // calibrate_phase_inductance();
+    calibrate_phase_inductance();
 
     current_sum_log_.clear();
     current_sum_log_.reserve(1000); // Pre-allocate space for efficiency
@@ -291,45 +291,64 @@ esp_err_t Controller::calibrate_phase_resistance() {
     
 
 esp_err_t Controller::calibrate_phase_inductance() {
-    float duty = 0.05f; // 5% duty
-    float v_bus = 12.0f;
-    float v_applied = duty * v_bus;
-    float dt = 0.00005f; // 50 us
-    int num_samples = 8;
-    float L_sum = 0.0f;
 
-    inv_.on_activate();
-    inv_.set_duty_cycle(0.0f, 0.0f, 0.0f);
-    vTaskDelay(1); // Wait for settling
+float v_bus = 12.0f;
+float v_applied = 1.0f;
+float duty = v_applied / v_bus;
+int num_samples = 8;
+float L_sum = 0.0f;
+int dt_us = 50;
+int actual_sample = 0;
+float ib = 0.0f, ic = 0.0f;
+uint64_t pulse_start_time = 0;
+bool pulse_active = false;
 
-    for (int n = 0; n < num_samples; ++n) {
-        float ia_start = 0.0f, ib = 0.0f, ic = 0.0f;
-        float ia_end = 0.0f;
+inv_.set_duty_cycle(0.0f, 0.0f, 0.0f); // Ensure motor is idle
 
-        // Read initial current
+float ia_start = 0.0f, ia_end = 0.0f;
+
+while (actual_sample < num_samples) {
+    // Wait for control loop sync (1 PWM cycle)
+    xSemaphoreTake(update_semaphore_, portMAX_DELAY);
+
+    if (!pulse_active) {
+        // Step 1: Get current before pulse (already sampled in ISR)
         current_observer_.get_currents(ia_start, ib, ic);
 
-        // Apply voltage pulse (A = +duty, B = -duty, C = floating)
+        // Step 2: Start pulse
         inv_.set_duty_cycle(duty, -duty, 0.0f);
-        esp_rom_delay_us(50); // 50 us pulse
 
-        // Read final current
-        current_observer_.get_currents(ia_end, ib, ic);
+        // Step 3: Start timer
+        pulse_start_time = esp_timer_get_time();
+        pulse_active = true;
+    } else {
+        // Step 4: Wait until pulse duration elapsed
+        if ((esp_timer_get_time() - pulse_start_time) >= dt_us) {
+            // Step 5: Get current after pulse (already updated in last ISR)
+            current_observer_.get_currents(ia_end, ib, ic);
 
-        // Stop PWM
-        inv_.set_duty_cycle(0.0f, 0.0f, 0.0f);
-        vTaskDelay(1); // Wait for settling between pulses
+            // Step 6: Stop pulse
+            inv_.set_duty_cycle(0.0f, 0.0f, 0.0f);
 
-        float delta_i = fabsf(ia_end - ia_start);
-        if (delta_i > 1e-6f) { // Avoid div by zero
-            float L = (v_applied * dt) / delta_i;
-            L_sum += L;
+            // Step 7: Compute inductance
+            float di = fabsf(ia_end - ia_start);
+            if (di > 0.005f) { // Avoid division by noise
+                float L = (v_applied * dt_us * 1e-6f) / di;
+                L_sum += L;
+                actual_sample++;
+            }
+
+            pulse_active = false; // Ready for next sample
         }
     }
-    inv_.set_duty_cycle(0.0f, 0.0f, 0.0f);
-    inv_.on_deactivate();
+}
+   
 
-    float L_avg = L_sum / num_samples;
+    
+
+    inv_.set_duty_cycle(0.0f, 0.0f, 0.0f);
+
+    float L_avg = L_sum / actual_sample;
     ESP_LOGI("Controller", "Phase inductance: %.2f uH (avg of %d)", L_avg * 1e6, num_samples);
     return ESP_OK;
 }

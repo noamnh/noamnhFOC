@@ -29,11 +29,7 @@ void foc_main_task(void* arg) {
 
 extern "C" void app_main() {
 
-// current_observer.on_init();
-// current_observer.on_configure(7, 8, 3);
-// current_observer.set_shunt_and_gain(0.005f, 1.0f);
-// current_observer.on_activate();
-// current_observer.on_calibrate();
+
 
 controller.on_init();
 controller.on_activate();

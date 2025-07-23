@@ -21,14 +21,26 @@ enum Mode {
 
 };
 
-struct config{
+struct Gains{
+    float Kp = 0.0f; // Proportional gain
+    float Ki = 0.0f; // Integral gain
+    float Kd = 0.0f; // Derivative gain
+    float Kff = 0.0f; // Feedforward gain
+};
+
+struct ControllerConfig {
     float lpf_gain = 0.3f;
+    float plant_pole = 0.0f;
+    float bandwidth = 20000.0f; // 20kHz
+    float current_limit = 4.0f; // 4A
+    float velocity_limit = 1000.0f; // 1000 degrees per second
+
 };
 
 struct MotorConfig {
     int pole_pairs;
-    float resistance;
-    float inductance;
+    float phase_resistance;
+    float phase_inductance;
     float vbus_voltage = 12.0f;
 };
 
