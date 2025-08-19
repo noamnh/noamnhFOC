@@ -1,6 +1,12 @@
 
+#pragma once
+
+#ifndef SENSOR_HPP  
+#define SENSOR_HPP
+
 #include "esp_log.h"
 #include "utils.h"
+#define _2PI                                6.28318530718f
 
 
 typedef struct {
@@ -32,14 +38,24 @@ public:
     virtual void update() = 0;
     virtual void reset() = 0;
     virtual bool calibrate() = 0;
-    virtual float get_raw_angle() const = 0; // get the raw single turn angle
-    virtual float get_ticks() const = 0; // get the raw ticks
-    virtual float get_multiturn_angle() const = 0; // get the multiturn angle
-    virtual float get_velocity() const = 0; // get the velocity
+    
+    float get_raw_angle() {
+        // state_.raw_angle = (state_.ticks* _2PI) / config_.resolution;
+        return state_.raw_angle;
+    } // get the raw single turn angle
+    uint16_t get_ticks() const {
+        return state_.ticks;
+    } // get the raw ticks
+    float get_multiturn_angle() const {
+        return state_.multiturn_angle;
+    } // get the multiturn angle
+    float get_velocity() const {
+        return state_.velocity;
+    } // get the velocity
 
     
     protected:
-        sensor_state_t state_;
+    sensor_state_t state_;
     sensor_status_t status_;
     sensor_config_t config_;
 
@@ -47,3 +63,5 @@ public:
 
 
 };
+
+#endif // SENSOR_HPP

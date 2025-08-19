@@ -45,6 +45,10 @@ esp_err_t Controller::on_init() {
     cbs.on_full = update; // Set the callback function for the timer event
     esp_err_t ret = inv_.set_inverter_callback(&cbs, this);
 
+
+    sensor_.on_configure();
+    sensor_.on_init();
+
     BaseType_t task_ret = xTaskCreatePinnedToCore(
     Controller::adc_task,         // Task function
     "adc_task",                   // Name
@@ -147,37 +151,45 @@ esp_err_t Controller::main_loop() {
 
     // current_observer_.on_calibrate_ema();
 
-    calibrate_phase_resistance();
-    calibrate_phase_inductance();
+    // calibrate_phase_resistance();
+    // calibrate_phase_inductance();
 
     current_sum_log_.clear();
     current_sum_log_.reserve(1000); // Pre-allocate space for efficiency
 
     float ia, ib, ic;
     int64_t start_time = esp_timer_get_time(); // microseconds
-    int64_t duration = 5 * 1000000; // 5 seconds in microseconds
+    int64_t duration = 30 * 1000000; // 5 seconds in microseconds
     float current_sum = 0.0f;
     int counter = 0;  // <-- FIXED: normal variable, resets each call
 
+    // example open loop step
     while(true){
         int64_t now = esp_timer_get_time();
         if ((now - start_time) >= duration) {
             break;
         }
-                xSemaphoreTake(update_semaphore_, portMAX_DELAY);
+                // xSemaphoreTake(update_semaphore_, portMAX_DELAY);
+                //add delay 
+                // vTaskDelay(pdMS_TO_TICKS(1)); // 1 ms delay for each step
                 // timestamps_.pwm_period_us = esp_timer_get_time();
-                open_loop_step();
-                current_observer_.get_currents(ia, ib, ic);
+                // open_loop_step();
+                // current_observer_.get_currents(ia, ib, ic);
+                sensor_.update();
 
+                // if (++counter % 1000 == 0) {
 
-                if (++counter % 1000 == 0) {
+                //      current_sum = 0.5f * (fabsf(ia) + fabsf(ib) + fabsf(ic)) + 0.5f * current_sum;
+                //     int64_t adc_us = timestamps_.adc_sample_time_us;
+                //     int64_t pwm_us = timestamps_.pwm_period_us;
+                //     // ESP_LOGI("Timing", "Δt (us) = %lld", adc_us - pwm_us);
+                //     // ESP_LOGI("Controller", "Sensor angle: %.2f", sensor_.get_raw_angle());
+                //     current_sum_log_.push_back(current_sum);
+                // }
 
-                     current_sum = 0.5f * (fabsf(ia) + fabsf(ib) + fabsf(ic)) + 0.5f * current_sum;
-                    int64_t adc_us = timestamps_.adc_sample_time_us;
-                    int64_t pwm_us = timestamps_.pwm_period_us;
-                    // ESP_LOGI("Timing", "Δt (us) = %lld", adc_us - pwm_us);
-                    current_sum_log_.push_back(current_sum);
-                }
+                // // log the raw angle
+                float raw_angle = sensor_.get_raw_angle();
+                ESP_LOGI("Controller", "Sensor raw angle: %.2f", raw_angle);
             
         }
 
@@ -216,7 +228,6 @@ bool Controller::update(mcpwm_timer_handle_t timer, const mcpwm_timer_event_data
     return task_woken;
 }
 
-
 bool IRAM_ATTR Controller::update_adc_mid_point_event_callback(mcpwm_cmpr_handle_t cmp, const mcpwm_compare_event_data_t *edata, void *user_ctx) {
     Controller* self = static_cast<Controller*>(user_ctx);  // ✅ FIXED
     BaseType_t task_woken = pdFALSE;
@@ -227,7 +238,6 @@ bool IRAM_ATTR Controller::update_adc_mid_point_event_callback(mcpwm_cmpr_handle
     return task_woken == pdTRUE;
 }
 
-
 void Controller::adc_task(void* arg) {
     Controller* self = static_cast<Controller*>(arg);
     ESP_LOGI("Controller", "ADC task started, handle=%p", self->adc_task_handle_);
@@ -236,10 +246,13 @@ void Controller::adc_task(void* arg) {
         // ESP_LOGI("Controller", "ADC task notified, processing data...");
         // Safe to process current here
         self->current_observer_.handle_dma_event();
+        // self->sensor_.update();  // Update sensor data
     }
 }
 
 esp_err_t Controller::calibrate_phase_resistance() {
+
+    // TODO make this configurable
     float ia = 0.0f, ib = 0.0f, ic = 0.0f;
     float actual_current = 0.0f;
     float v_bus = 12.0f;
@@ -288,9 +301,10 @@ esp_err_t Controller::calibrate_phase_resistance() {
     return ESP_OK;
 }
 
-    
-
 esp_err_t Controller::calibrate_phase_inductance() {
+
+
+    // TODO make this configurable
 
 float v_bus = 12.0f;
 float v_applied = 1.0f;

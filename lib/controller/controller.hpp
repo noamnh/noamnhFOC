@@ -3,7 +3,7 @@
 
 #include "utils.h"
 #include "freertos/FreeRTOS.h"
-#include "as5600.hpp"
+#include "as5047/as5047.h"
 #include <vector>
 using namespace inverter;
 
@@ -93,7 +93,7 @@ public:
 
 private:
     Inverter inv_;
-    AS5600 sensor_;
+    AS5047 sensor_;
     current_sense::CurrentObserver current_observer_;
 
     bool enable_ = false; // Flag to enable or disable the controller
